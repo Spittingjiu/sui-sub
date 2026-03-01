@@ -176,8 +176,11 @@ async function loadSubs(){
   for(const s of arr){
     const full=`${location.origin}${s.url}`, importUri=`xray://import?url=${encodeURIComponent(full)}`;
     const row=document.createElement('div');row.className='src-item';
-    row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:360px"><button>复制</button><a href="${importUri}"><button>一键导入</button></a><button>编辑</button><button>删除</button></div></div>`;
-    const btn=row.querySelectorAll('button'); row.querySelector('input').onclick=e=>e.target.select(); btn[0].onclick=()=>navigator.clipboard.writeText(full); btn[1].onclick=()=>openSubModal(s); btn[2].onclick=()=>deleteSub(s.id);
+    row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:360px"><button data-act="copy">复制</button><a href="${importUri}"><button data-act="import">一键导入</button></a><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
+    row.querySelector('input').onclick=e=>e.target.select();
+    row.querySelector('[data-act="copy"]').onclick=()=>navigator.clipboard.writeText(full);
+    row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
+    row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);
   }
 }
