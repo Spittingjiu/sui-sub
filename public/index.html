@@ -28,7 +28,6 @@
     td,th{border-bottom:1px solid #243055;padding:8px;text-align:left;font-size:13px}
     .hide{display:none}
     .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6}
-    .selector{border:1px solid var(--line2);border-radius:10px;padding:8px;background:var(--bg2);min-height:44px}
     .chips{display:flex;gap:6px;flex-wrap:wrap}
     .chip{padding:4px 8px;border-radius:999px;background:#1d2850;font-size:12px}
     .sel-list{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
@@ -223,8 +222,6 @@ async function loadNodes(){
 
 async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});loadNodes();}
 
-function renderNodePicker(){}
-
 async function loadSubs(){
   const j=await api('/api/subscriptions');
   const box=q('#subs');
@@ -282,7 +279,6 @@ async function saveSubModal(){
   loadSubs();
 }
 
-async function createSub(){ openSubModal(); }
 async function editSub(sub){ openSubModal(sub); }
 
 async function deleteSub(id){
