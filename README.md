@@ -17,8 +17,34 @@ npm start
 
 默认端口：`8780`
 
+## Docker 安装
+### 方式1：Docker Compose（推荐）
+```bash
+git clone https://github.com/Spittingjiu/sui-sub.git
+cd sui-sub
+mkdir -p data
+docker compose up -d --build
+```
+
+启动后访问：`http://服务器IP:8780`
+
+### 方式2：纯 Docker
+```bash
+docker build -t sui-sub:latest .
+docker run -d \
+  --name sui-sub \
+  -p 8780:8780 \
+  -e SUI_SUB_USER=admin \
+  -e SUI_SUB_PASS=admin123 \
+  -e SUI_SUB_SESSION_SECRET=change-me-please \
+  -e SUI_SUB_SYNC_MS=300000 \
+  -v $(pwd)/data:/app/data \
+  --restart unless-stopped \
+  sui-sub:latest
+```
+
 ## Env
 - `SUI_SUB_USER` 默认 `admin`
 - `SUI_SUB_PASS` 默认 `admin123`
-- `SUI_SUB_SESSION_SECRET` 会话签名密钥
+- `SUI_SUB_SESSION_SECRET` 会话签名密钥（务必修改）
 - `SUI_SUB_SYNC_MS` 自动同步间隔（毫秒，默认 5 分钟）

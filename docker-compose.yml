@@ -1,0 +1,15 @@
+services:
+  sui-sub:
+    build: .
+    container_name: sui-sub
+    restart: unless-stopped
+    ports:
+      - "8780:8780"
+    environment:
+      - PORT=8780
+      - SUI_SUB_USER=admin
+      - SUI_SUB_PASS=admin123
+      - SUI_SUB_SESSION_SECRET=change-me-please
+      - SUI_SUB_SYNC_MS=300000
+    volumes:
+      - ./data:/app/data
