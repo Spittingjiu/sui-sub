@@ -2,6 +2,13 @@
 
 SUI 订阅管理站：支持多源 SUI 面板聚合、自动同步、节点选择式订阅、SUI 面板节点管理（一键 Reality / 删除节点）。
 
+## 🤝 兄弟项目：SUI Panel
+如果你还没有面板端，先装 SUI Panel：
+- 项目地址：https://github.com/Spittingjiu/sui
+- 一键安装：`bash <(curl -fsSL https://raw.githubusercontent.com/Spittingjiu/sui/main/install.sh)`
+
+`sui-sub` 负责“聚合订阅与分发”，`sui` 负责“节点生产与运维管理”，两者配合体验最佳。
+
 ## Features
 - 登录鉴权（用户名/密码）
 - 多 SUI 源接入与自动同步
