@@ -65,6 +65,7 @@
           <button id="tabHomeBtn" onclick="switchTab('home')">首页</button>
           <button id="tabNodeBtn" onclick="switchTab('nodes')">节点&订阅</button>
           <button id="tabSuiBtn" onclick="switchTab('sui')">SUI管理</button>
+          <button id="tabUserBtn" onclick="switchTab('user')">用户管理</button>
         </div>
         <h1 style="margin:0">🚀 sui-sub</h1>
         <div class="muted">支持多源聚合、自动同步、多个订阅链接，按需导入。</div>
@@ -117,6 +118,19 @@
         <div id="suiNodes"></div>
       </div>
     </div>
+
+    <div id="tab-user" class="hide">
+      <div class="card">
+        <h3>用户管理</h3>
+        <div class="row" style="margin-bottom:8px">
+          <input id="adminUser" placeholder="新用户名" style="max-width:240px"/>
+          <input id="adminPass" type="password" placeholder="新密码（至少6位）" style="max-width:260px"/>
+          <button onclick="saveAdminUser()">保存账号密码</button>
+        </div>
+        <div class="muted">提示：修改后，下次登录使用新账号密码。</div>
+      </div>
+    </div>
+
   </div>
 
 <script>
@@ -144,10 +158,13 @@ function switchTab(tab){
   q('#tab-home').classList.toggle('hide', tab!=='home');
   q('#tab-nodes').classList.toggle('hide', tab!=='nodes');
   q('#tab-sui').classList.toggle('hide', tab!=='sui');
+  q('#tab-user').classList.toggle('hide', tab!=='user');
   q('#tabHomeBtn').classList.toggle('tab-on', tab==='home');
   q('#tabNodeBtn').classList.toggle('tab-on', tab==='nodes');
   q('#tabSuiBtn').classList.toggle('tab-on', tab==='sui');
+  q('#tabUserBtn').classList.toggle('tab-on', tab==='user');
   if(tab==='sui') loadSuiNodes();
+  if(tab==='user') loadAdminUser();
 }
 
 async function checkAuth(){
@@ -330,6 +347,23 @@ async function deleteSuiInbound(sourceId,inboundId){
   await loadSources();
   await loadNodes();
   await loadSuiNodes();
+}
+
+async function loadAdminUser(){
+  try{
+    const j=await api('/api/admin/user');
+    q('#adminUser').value=j.username||'';
+    q('#adminPass').value='';
+  }catch(e){toast(e.message,'err');}
+}
+
+async function saveAdminUser(){
+  const username=(q('#adminUser').value||'').trim();
+  const password=(q('#adminPass').value||'').trim();
+  if(!username||password.length<6) return toast('用户名必填，密码至少6位','err');
+  await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password})});
+  q('#adminPass').value='';
+  toast('账号已更新（下次登录生效）','ok');
 }
 
 async function init(){

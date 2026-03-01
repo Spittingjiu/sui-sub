@@ -46,14 +46,46 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   node_ids_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS admin_settings (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  username TEXT NOT NULL,
+  password TEXT NOT NULL
+);
 `);
 
 const sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
+const hasTokenUrlCol = sourceCols.includes('token_url');
+const hasSourceTypeCol = sourceCols.includes('source_type');
 if (!sourceCols.includes('panel_token')) db.exec(`ALTER TABLE sources ADD COLUMN panel_token TEXT NOT NULL DEFAULT ''`);
 if (!sourceCols.includes('last_sync_at')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_at TEXT`);
 if (!sourceCols.includes('last_sync_status')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_status TEXT`);
 const subCols = db.prepare(`PRAGMA table_info(subscriptions)`).all().map(x => x.name);
 if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD COLUMN node_ids_json TEXT NOT NULL DEFAULT '[]'`);
+
+const rowAdmin = db.prepare('SELECT * FROM admin_settings WHERE id=1').get();
+if (!rowAdmin) {
+  db.prepare('INSERT INTO admin_settings(id,username,password) VALUES(1,?,?)').run(ADMIN_USER, ADMIN_PASS);
+}
+function getAdminSettings(){
+  return db.prepare('SELECT username,password FROM admin_settings WHERE id=1').get() || { username: ADMIN_USER, password: ADMIN_PASS };
+}
+function setAdminSettings(username,password){
+  db.prepare('UPDATE admin_settings SET username=?, password=? WHERE id=1').run(username,password);
+}
+
+
+function insertSourceRow(name, panel_url, panel_token) {
+  if (hasTokenUrlCol && hasSourceTypeCol) {
+    const ins = db.prepare('INSERT INTO sources(name,panel_url,token_url,source_type,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?,?,?)');
+    return ins.run(name, panel_url, '', 'sui_api', panel_token, null, 'pending', now());
+  }
+  if (hasTokenUrlCol) {
+    const ins = db.prepare('INSERT INTO sources(name,panel_url,token_url,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?,?)');
+    return ins.run(name, panel_url, '', panel_token, null, 'pending', now());
+  }
+  const ins = db.prepare('INSERT INTO sources(name,panel_url,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?)');
+  return ins.run(name, panel_url, panel_token, null, 'pending', now());
+}
 
 app.use(express.json({ limit: '1mb' }));
 
@@ -90,7 +122,7 @@ function parseCookies(req) {
 }
 
 function requireAuth(req, res, next) {
-  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path.startsWith('/api/auth/') || req.path.startsWith('/api/bridge/')) return next();
   if (req.path.startsWith('/sub/')) return next();
   const cookies = parseCookies(req);
   const sess = verifySession(cookies.sui_sub_session || '');
@@ -245,7 +277,8 @@ async function autoSyncAll() {
 
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body || {};
-  if (String(username) !== ADMIN_USER || String(password) !== ADMIN_PASS) {
+  const adm = getAdminSettings();
+  if (String(username) !== adm.username || String(password) !== adm.password) {
     return res.status(401).json({ ok: false, error: '用户名或密码错误' });
   }
   const exp = Date.now() + 7 * 24 * 3600 * 1000;
@@ -266,6 +299,54 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ ok: true, username: sess.user });
 });
 
+
+app.get('/api/admin/user', (_req, res) => {
+  const adm = getAdminSettings();
+  res.json({ ok: true, username: adm.username });
+});
+
+app.post('/api/admin/user', (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+    if (!username) return res.status(400).json({ ok: false, error: 'username 必填' });
+    if (!password || password.length < 6) return res.status(400).json({ ok: false, error: 'password 至少6位' });
+    setAdminSettings(username, password);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// bridge: 供 SUI 面板一键写入 source（按用户名匹配）
+app.post('/api/bridge/push-source', async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    const name = String(req.body?.name || 'sui-auto').trim();
+    const panel_url = String(req.body?.panel_url || '').trim();
+    const panel_token = String(req.body?.panel_token || '').trim();
+    if (!username || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'username/panel_url/panel_token 必填' });
+    const adm = getAdminSettings();
+    if (username !== adm.username) return res.status(403).json({ ok: false, error: 'username 不匹配' });
+
+    const old = db.prepare('SELECT * FROM sources WHERE panel_url=?').get(panel_url);
+    let source_id;
+    if (old) {
+      source_id = old.id;
+      db.prepare('UPDATE sources SET name=?, panel_token=? WHERE id=?').run(name, panel_token, source_id);
+    } else {
+      const r = insertSourceRow(name, panel_url, panel_token);
+      source_id = Number(r.lastInsertRowid);
+      db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
+        .run(`${name}-default`, crypto.randomBytes(18).toString('base64url'), JSON.stringify([source_id]), '[]', now());
+    }
+    syncSource(source_id).catch(()=>{});
+    res.json({ ok: true, source_id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/sources', (req, res) => {
   const sources = db.prepare('SELECT * FROM sources ORDER BY id DESC').all();
   res.json({ ok: true, sources });
@@ -276,8 +357,7 @@ app.post('/api/sources', async (req, res) => {
     const { name, panel_url, panel_token } = req.body || {};
     if (!name || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'name / panel_url / panel_token 必填' });
 
-    const ins = db.prepare('INSERT INTO sources(name,panel_url,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?)');
-    const result = ins.run(name.trim(), panel_url.trim(), panel_token.trim(), null, 'pending', now());
+    const result = insertSourceRow(name.trim(), panel_url.trim(), panel_token.trim());
     const source_id = Number(result.lastInsertRowid);
 
     // 新源默认生成一个独立订阅链接
