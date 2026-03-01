@@ -142,12 +142,13 @@ async function addSource(){try{await api('/api/sources',{method:'POST',body:JSON
 async function deleteSource(id){if(!confirm('确认删除该源？'))return;await api('/api/sources/'+id,{method:'DELETE'});await refreshAll();}
 
 function sourceSyncText(s){if(!s.last_sync_at) return '未同步'; return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;}
-async function loadSources(){
-  const j=await api('/api/view/home'); sources=j.sources||[];
-  const box=q('#sources'); if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';return;}
+function renderSourcesUI(){
+  const box=q('#sources');
+  if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter(); return;}
   box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
+async function loadSources(){ const j=await api('/api/view/home'); sources=j.sources||[]; renderSourcesUI(); }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
 
 async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();}
@@ -169,8 +170,8 @@ function renderNodes(){
 }
 async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});await loadNodes();}
 
-async function loadSubs(){
-  const j=await api('/api/view/subscriptions'); const arr=j.subscriptions||[]; const box=q('#subs');
+function renderSubsUI(arr){
+  const box=q('#subs');
   if(!arr.length){box.innerHTML='<div class="muted">暂无</div>';return;}
   box.innerHTML='';
   for(const s of arr){
@@ -184,12 +185,19 @@ async function loadSubs(){
     box.appendChild(row);
   }
 }
+async function loadSubs(){ const j=await api('/api/view/subscriptions'); renderSubsUI(j.subscriptions||[]); }
 async function deleteSub(id){if(!confirm('确认删除此订阅？'))return;await api('/api/subscriptions/'+id,{method:'DELETE'});loadSubs();}
 
 function renderModalSourceFilter(){
   const sel=q('#modalSourceFilter'); if(!sel) return;
   const old=sel.value||'all'; sel.innerHTML='<option value="all">全部源</option>'+sources.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
-  sel.value=[...sel.options].some(o=>o.value===old)?old:'all'; sel.onchange=renderSubModal;
+  sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
+  sel.onchange=async()=>{
+    const sid=sel.value||'all';
+    const j=await api('/api/view/modal-nodes'+(sid!=='all'?`?sourceId=${sid}`:''));
+    modalAllNodes=j.nodes||[];
+    renderSubModal();
+  };
 }
 function modalNodes(){const sid=q('#modalSourceFilter')?.value||'all'; return sid==='all'?modalAllNodes:modalAllNodes.filter(n=>String(n.source_id)===sid)}
 function renderSubModal(){
@@ -200,7 +208,18 @@ function renderSubModal(){
   list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid);if(e.target.checked)selectedNodeIds.add(id);else selectedNodeIds.delete(id);renderSubModal();});
   picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
 }
-async function openSubModal(sub=null){editingSubId=sub?.id||null;q('#subModalTitle').textContent=sub?'编辑订阅':'新建订阅';q('#modalSubName').value=sub?.name||'';selectedNodeIds.clear();(sub?.node_ids||[]).forEach(id=>selectedNodeIds.add(Number(id)));const j=await api('/api/view/nodes');modalAllNodes=j.nodes||[];renderSubModal();q('#subModal').classList.remove('hide');}
+async function openSubModal(sub=null){
+  editingSubId=sub?.id||null;
+  q('#subModalTitle').textContent=sub?'编辑订阅':'新建订阅';
+  q('#modalSubName').value=sub?.name||'';
+  selectedNodeIds.clear();
+  (sub?.node_ids||[]).forEach(id=>selectedNodeIds.add(Number(id)));
+  const sid=q('#modalSourceFilter')?.value||'all';
+  const j=await api('/api/view/modal-nodes'+(sid!=='all'?`?sourceId=${sid}`:''));
+  modalAllNodes=j.nodes||[];
+  renderSubModal();
+  q('#subModal').classList.remove('hide');
+}
 function closeSubModal(){q('#subModal').classList.add('hide')}
 async function saveSubModal(){const nodeIds=[...selectedNodeIds], name=(q('#modalSubName').value||'').trim()||`sub-${Date.now()}`; if(!nodeIds.length)return toast('请先选择节点','err'); if(editingSubId) await api('/api/subscriptions/'+editingSubId,{method:'PUT',body:JSON.stringify({name,node_ids:nodeIds})}); else await api('/api/subscriptions',{method:'POST',body:JSON.stringify({name,node_ids:nodeIds})}); closeSubModal();loadSubs();}
 
@@ -212,8 +231,30 @@ async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该
 async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';}
 async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim();if(!username||password.length<6)return toast('用户名必填，密码至少6位','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password})});q('#adminPass').value='';toast('账号已更新（下次登录生效）','ok');}
 
-async function refreshAll(){await loadSources();if(!sources.some(x=>String(x.id)===String(sourceViewId)))sourceViewId='all';renderNodeSourceSelect();await loadNodes();await loadSubs();}
-async function init(){switchTab('home');await refreshAll();setInterval(async()=>{await api('/api/sources/sync-all',{method:'POST',body:'{}'}).catch(()=>{});await loadSources();await loadNodes();},60000)}
+function applyBootstrap(b){
+  sources=b.sources||[];
+  if(!sources.some(x=>String(x.id)===String(sourceViewId))) sourceViewId='all';
+  const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);
+  const nodes=(b.nodes||[]);
+  allNodes = sid ? nodes.filter(n=>Number(n.source_id)===sid) : nodes;
+  renderSourcesUI();
+  renderNodeSourceSelect();
+  renderNodes();
+  renderSubsUI(b.subscriptions||[]);
+}
+
+async function refreshAll(){
+  const b=await api('/api/view/bootstrap');
+  applyBootstrap(b);
+}
+async function init(){
+  switchTab('home');
+  await refreshAll();
+  setInterval(async()=>{
+    await api('/api/sources/sync-all',{method:'POST',body:'{}'}).catch(()=>{});
+    await refreshAll();
+  },60000)
+}
 q('#lp')?.addEventListener('keydown',e=>{if(e.key==='Enter')login()});
 checkAuth();
 </script>
