@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>sui-sub</title>
+  <style>
+    :root{
+      --bg:#0b1020;--bg2:#0f1730;--card:#121933;--line:#263258;--line2:#36446f;
+      --txt:#eef2ff;--muted:rgba(238,242,255,.72);--ok:#7ef8a5;--err:#ff8f8f;
+    }
+    *{box-sizing:border-box}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;margin:0;background:radial-gradient(1200px 500px at 10% -10%,#1a2b6f44,transparent),radial-gradient(900px 600px at 100% 0,#9333ea33,transparent),var(--bg);color:var(--txt)}
+    body.auth-mode{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:18px}
+    .wrap{max-width:1100px;margin:22px auto;padding:0 14px}
+    .card{background:linear-gradient(180deg,#121933,#0f1730);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+    input,button,select{border-radius:10px;border:1px solid var(--line2);background:var(--bg2);color:var(--txt);padding:10px}
+    input{width:100%;min-width:0;outline:none}
+    input:focus{border-color:#5b7cff;box-shadow:0 0 0 3px #5b7cff33}
+    button{cursor:pointer;white-space:nowrap;transition:.15s transform,.15s opacity}
+    button:hover{transform:translateY(-1px);opacity:.95}
+    .grid{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .muted{color:var(--muted);font-size:13px}
+    .ok{color:var(--ok)}.err{color:var(--err)}
+    .pill{padding:3px 8px;border-radius:999px;background:#1d2850;display:inline-block;font-size:12px}
+    table{width:100%;border-collapse:collapse}
+    td,th{border-bottom:1px solid #243055;padding:8px;text-align:left;font-size:13px}
+    .hide{display:none}
+    .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6}
+    .selector{border:1px solid var(--line2);border-radius:10px;padding:8px;background:var(--bg2);min-height:44px}
+    .chips{display:flex;gap:6px;flex-wrap:wrap}
+    .chip{padding:4px 8px;border-radius:999px;background:#1d2850;font-size:12px}
+    .sel-list{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
+    .modal-mask{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+    .modal-mask.hide{display:none !important}
+    .modal-box{width:min(760px,96vw);max-height:88vh;overflow:auto;background:linear-gradient(180deg,#161f43,#101834);border:1px solid #445189;border-radius:14px;padding:14px}
+
+    /* 登录页美化 */
+    #loginCard{width:min(460px,94vw);padding:20px;border:1px solid #445189;background:linear-gradient(180deg,#161f43,#101834);backdrop-filter:blur(8px)}
+    .login-title{margin:0 0 4px 0;font-size:24px;font-weight:800;letter-spacing:.2px}
+    .login-sub{margin:0 0 16px 0;color:var(--muted);font-size:13px}
+    .login-grid{display:grid;grid-template-columns:1fr;gap:10px}
+    .login-btn{width:100%;font-weight:700;background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6}
+    .logo-dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:#7c8fff;box-shadow:0 0 14px #7c8fff;margin-right:8px}
+
+    @media (max-width:860px){.grid{grid-template-columns:1fr}.wrap{margin:14px auto}}
+  </style>
+</head>
+<body>
+  <div id="loginCard" class="card hide">
+    <div class="login-title"><span class="logo-dot"></span>sui-sub</div>
+    <p class="login-sub">登录后可管理多源节点、自动同步和多个订阅链接。</p>
+    <div class="login-grid">
+      <input id="lu" placeholder="用户名" autocomplete="username"/>
+      <input id="lp" type="password" placeholder="密码" autocomplete="current-password"/>
+      <button class="login-btn" onclick="login()">进入控制台</button>
+    </div>
+    <div id="lmsg" class="muted" style="margin-top:10px"></div>
+  </div>
+
+  <div id="app" class="hide wrap">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="row" style="gap:6px;margin-bottom:8px">
+          <button id="tabHomeBtn" onclick="switchTab('home')">首页</button>
+          <button id="tabNodeBtn" onclick="switchTab('nodes')">节点&订阅</button>
+          <button id="tabSuiBtn" onclick="switchTab('sui')">SUI管理</button>
+        </div>
+        <h1 style="margin:0">🚀 sui-sub</h1>
+        <div class="muted">支持多源聚合、自动同步、多个订阅链接，按需导入。</div>
+      </div>
+      <div class="row"><span class="pill">自动同步中</span><button onclick="logout()">退出登录</button></div>
+    </div>
+
+    <div id="tab-home">
+      <div class="card">
+        <h3 style="margin:0">新增连接源（SUI API）</h3>
+        <div class="grid" style="margin-top:10px">
+          <input id="name" placeholder="名称（例如：东京）"/>
+          <input id="panel" placeholder="面板地址（https://sui.zzao.de）"/>
+          <input id="token" placeholder="SUI API Token"/>
+          <button onclick="addSource()">保存</button>
+        </div>
+        <div id="msg" class="muted" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h3>连接源（可多选聚合）</h3>
+        <div id="sources"></div>
+      </div>
+    </div>
+
+    <div id="tab-nodes" class="hide">
+      <div class="card">
+        <h3>订阅链接（多个）</h3>
+        <div class="row" style="margin-bottom:8px">
+          <button onclick="openSubModal()">新建订阅</button>
+        </div>
+        <div id="subs" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <h3>节点列表（聚合）</h3>
+        <div id="nodes"></div>
+      </div>
+    </div>
+
+    <div id="tab-sui" class="hide">
+      <div class="card">
+        <h3>SUI 节点管理</h3>
+        <div class="row" style="margin-bottom:10px">
+          <select id="suiSource" style="min-width:220px"></select>
+          <input id="realityName" placeholder="Reality 节点名称（可自定义）" style="min-width:220px"/>
+          <button onclick="loadSuiNodes()">刷新节点</button>
+          <button onclick="quickReality()">一键 Reality</button>
+        </div>
+        <div id="suiNodes"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const q=s=>document.querySelector(s);
+const selectedSources=new Set();
+let sources=[];
+let allNodes=[];
+const selectedNodeIds=new Set();
+let editingSubId=null;
+
+const toast=(t,c='')=>{const el=q('#msg');el.className=c;el.textContent=t;}
+
+async function api(url,opt={}){
+  const r=await fetch(url,{headers:{'content-type':'application/json'},...opt});
+  const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));
+  if(!j.ok) throw new Error(j.error||'请求失败');
+  return j;
+}
+
+function setAuthMode(isLogin){
+  document.body.classList.toggle('auth-mode', isLogin);
+}
+
+function switchTab(tab){
+  q('#tab-home').classList.toggle('hide', tab!=='home');
+  q('#tab-nodes').classList.toggle('hide', tab!=='nodes');
+  q('#tab-sui').classList.toggle('hide', tab!=='sui');
+  q('#tabHomeBtn').classList.toggle('tab-on', tab==='home');
+  q('#tabNodeBtn').classList.toggle('tab-on', tab==='nodes');
+  q('#tabSuiBtn').classList.toggle('tab-on', tab==='sui');
+  if(tab==='sui') loadSuiNodes();
+}
+
+async function checkAuth(){
+  const r=await fetch('/api/auth/me');
+  if(r.status===200){q('#loginCard').classList.add('hide');q('#app').classList.remove('hide');setAuthMode(false);init();}
+  else {q('#loginCard').classList.remove('hide');q('#app').classList.add('hide');setAuthMode(true);}
+}
+
+async function login(){
+  try{
+    await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});
+    q('#lmsg').textContent='';
+    checkAuth();
+  }catch(e){q('#lmsg').textContent=e.message;}
+}
+
+async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});location.reload();}
+
+async function addSource(){
+  try{
+    await api('/api/sources',{method:'POST',body:JSON.stringify({name:q('#name').value.trim(),panel_url:q('#panel').value.trim(),panel_token:q('#token').value.trim()})});
+    q('#name').value='';q('#panel').value='';q('#token').value='';
+    toast('已保存，开始自动同步…','ok');
+    await loadSources();
+    await loadSubs();
+    await loadNodes();
+  }catch(e){toast(e.message,'err');}
+}
+
+async function deleteSource(id){
+  if(!confirm('确认删除该源？')) return;
+  await api('/api/sources/'+id,{method:'DELETE'});
+  selectedSources.delete(id);
+  await loadSources();
+  await loadSubs();
+  await loadNodes();
+}
+
+function sourceSyncText(s){
+  if(!s.last_sync_at) return '未同步';
+  return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;
+}
+
+async function loadSources(){
+  const j=await api('/api/sources');
+  sources=j.sources||[];
+  if(!selectedSources.size) sources.forEach(s=>selectedSources.add(s.id));
+  const box=q('#sources');
+  if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';return;}
+  box.innerHTML='';
+  for(const s of sources){
+    const row=document.createElement('div');row.className='row';row.style.margin='8px 0';
+    const checked=selectedSources.has(s.id)?'checked':'';
+    row.innerHTML=`<label class="row"><input type="checkbox" ${checked} data-id="${s.id}"><b>${s.name}</b></label><span class="muted">${s.panel_url}</span><span class="pill">${sourceSyncText(s)}</span><button data-del="${s.id}">删除</button>`;
+    row.querySelector('input').onchange=(e)=>{const id=Number(e.target.dataset.id);if(e.target.checked)selectedSources.add(id);else selectedSources.delete(id);loadNodes();};
+    row.querySelector('button').onclick=()=>deleteSource(s.id);
+    box.appendChild(row);
+  }
+  loadSuiSourceOptions();
+}
+
+async function loadNodes(){
+  const ids=[...selectedSources];
+  const qs=ids.length?`?sourceIds=${ids.join(',')}`:'';
+  const j=await api('/api/nodes'+qs);
+  const rows=j.nodes||[];
+  allNodes=rows;
+  const box=q('#nodes');
+  if(!rows.length){box.innerHTML='<div class="muted">暂无节点</div>';return;}
+  box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>`<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td><button onclick="toggleNode(${n.id})">切换</button></td></tr>`).join('')}</tbody></table>`;
+}
+
+async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});loadNodes();}
+
+function renderNodePicker(){}
+
+async function loadSubs(){
+  const j=await api('/api/subscriptions');
+  const box=q('#subs');
+  const arr=j.subscriptions||[];
+  if(!arr.length){box.innerHTML='<div class="muted">暂无</div>';return;}
+  box.innerHTML='';
+  for(const s of arr){
+    const full=`${location.origin}${s.url}`;
+    const importUri=`xray://import?url=${encodeURIComponent(full)}`;
+    const row=document.createElement('div');row.className='row';row.style.margin='8px 0';
+    row.innerHTML=`<span class="pill">${s.name}</span><span class="muted">面板：${(s.source_names||[]).join(', ')||'未指定'} · 节点数：${(s.node_ids||[]).length}</span><input readonly value="${full}" style="max-width:430px"><button>复制</button><a href="${importUri}"><button>一键导入</button></a><button>编辑</button><button class="del">删除</button>`;
+    const [copyBtn,editBtn,delBtn]=[row.querySelectorAll('button')[0],row.querySelectorAll('button')[2],row.querySelectorAll('button')[3]];
+    row.querySelector('input').onclick=e=>e.target.select();
+    copyBtn.onclick=()=>navigator.clipboard.writeText(full);
+    editBtn.onclick=()=>editSub(s);
+    delBtn.onclick=()=>deleteSub(s.id);
+    box.appendChild(row);
+  }
+}
+
+function renderSubModal(){
+  const picked=q('#modalPicked');
+  const list=q('#modalNodeList');
+  const chosen=allNodes.filter(n=>selectedNodeIds.has(n.id));
+  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${n.node_name||('#'+n.id)} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
+  list.innerHTML=allNodes.length?allNodes.map(n=>`<label class="row" style="margin:4px 0"><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''}> <span>${n.node_name||('#'+n.id)}</span> <span class="muted">(${n.source_name||n.source_id})</span></label>`).join(''):'<div class="muted">暂无节点</div>';
+  list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid); if(e.target.checked) selectedNodeIds.add(id); else selectedNodeIds.delete(id); renderSubModal();});
+  picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
+}
+
+function openSubModal(sub=null){
+  editingSubId=sub?.id||null;
+  q('#subModalTitle').textContent=sub?'编辑订阅':'新建订阅';
+  q('#modalSubName').value=sub?.name||'';
+  selectedNodeIds.clear();
+  (sub?.node_ids||[]).forEach(id=>selectedNodeIds.add(Number(id)));
+  renderSubModal();
+  q('#subModal').classList.remove('hide');
+}
+
+function closeSubModal(){ q('#subModal').classList.add('hide'); }
+
+async function saveSubModal(){
+  const nodeIds=[...selectedNodeIds];
+  if(!nodeIds.length) return toast('请先选择节点','err');
+  const name=(q('#modalSubName').value||'').trim()||`sub-${Date.now()}`;
+  if(editingSubId){
+    await api('/api/subscriptions/'+editingSubId,{method:'PUT',body:JSON.stringify({name,node_ids:nodeIds})});
+    toast('订阅已更新','ok');
+  }else{
+    await api('/api/subscriptions',{method:'POST',body:JSON.stringify({name,node_ids:nodeIds})});
+    toast('订阅已创建','ok');
+  }
+  closeSubModal();
+  loadSubs();
+}
+
+async function createSub(){ openSubModal(); }
+async function editSub(sub){ openSubModal(sub); }
+
+async function deleteSub(id){
+  if(!confirm('确认删除此订阅？')) return;
+  await api('/api/subscriptions/'+id,{method:'DELETE'});
+  loadSubs();
+}
+
+function loadSuiSourceOptions(){
+  const sel=q('#suiSource');
+  if(!sel) return;
+  const prev=sel.value;
+  sel.innerHTML=sources.map(s=>`<option value="${s.id}">${s.name} (${s.panel_url})</option>`).join('');
+  if(prev && [...sel.options].some(o=>o.value===prev)) sel.value=prev;
+  sel.onchange=()=>loadSuiNodes();
+}
+
+async function loadSuiNodes(){
+  const sel=q('#suiSource');
+  const box=q('#suiNodes');
+  if(!sel || !sel.value){box.innerHTML='<div class="muted">请先添加源</div>';return;}
+  const sourceId=Number(sel.value);
+  try{
+    const j=await api(`/api/sui/${sourceId}/inbounds`);
+    const arr=j.inbounds||[];
+    if(!arr.length){box.innerHTML='<div class="muted">暂无节点</div>';return;}
+    box.innerHTML=`<table><thead><tr><th>ID</th><th>备注</th><th>协议</th><th>端口</th><th>状态</th><th>操作</th></tr></thead><tbody>${arr.map(i=>`<tr><td>${i.id}</td><td>${i.remark||''}</td><td>${i.protocol||''}</td><td>${i.port||''}</td><td>${i.enable?'<span class="ok">启用</span>':'<span class="err">停用</span>'}</td><td><button onclick="deleteSuiInbound(${sourceId},${i.id})">删除</button></td></tr>`).join('')}</tbody></table>`;
+  }catch(e){box.innerHTML=`<div class="err">加载失败：${e.message}</div>`;}
+}
+
+async function quickReality(){
+  const sel=q('#suiSource');
+  if(!sel || !sel.value) return toast('请先选择源','err');
+  const sourceId=Number(sel.value);
+  const custom=(q('#realityName')?.value||'').trim();
+  const remark=custom || `quick-${Date.now()}`;
+  await api(`/api/sui/${sourceId}/reality-quick`,{method:'POST',body:JSON.stringify({remark})});
+  if(q('#realityName')) q('#realityName').value='';
+  toast(`已创建 Reality 节点：${remark}`,'ok');
+  await loadSources();
+  await loadNodes();
+  await loadSuiNodes();
+}
+
+async function deleteSuiInbound(sourceId,inboundId){
+  if(!confirm('确认删除该节点？')) return;
+  await api(`/api/sui/${sourceId}/inbounds/${inboundId}`,{method:'DELETE'});
+  toast('节点已删除','ok');
+  await loadSources();
+  await loadNodes();
+  await loadSuiNodes();
+}
+
+async function init(){
+  switchTab('home');
+  await loadSources();
+  await loadSubs();
+  await loadNodes();
+  setInterval(async()=>{await api('/api/sources/sync-all',{method:'POST',body:'{}'}).catch(()=>{});await loadSources();await loadNodes();}, 60000);
+}
+
+q('#lp')?.addEventListener('keydown',e=>{if(e.key==='Enter')login();});
+checkAuth();
+</script>
+
+<div id="subModal" class="modal-mask hide">
+  <div class="modal-box">
+    <div class="row" style="justify-content:space-between">
+      <h3 id="subModalTitle" style="margin:0">编辑订阅</h3>
+      <button onclick="closeSubModal()">关闭</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="modalSubName" placeholder="订阅名称" style="max-width:320px"/>
+      <button onclick="saveSubModal()">保存</button>
+    </div>
+    <div class="muted" style="margin-top:8px">选择已有节点列表（可多选）</div>
+    <div id="modalPicked" class="chips" style="margin-top:6px"></div>
+    <div id="modalNodeList" class="sel-list"></div>
+  </div>
+</div>
+
+</body>
+</html>

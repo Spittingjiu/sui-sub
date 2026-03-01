@@ -1,0 +1,494 @@
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import Database from 'better-sqlite3';
+import crypto from 'crypto';
+import fetch from 'node-fetch';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const app = express();
+const PORT = process.env.PORT || 8780;
+
+const ADMIN_USER = process.env.SUI_SUB_USER || 'admin';
+const ADMIN_PASS = process.env.SUI_SUB_PASS || 'admin123';
+const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-change-me';
+const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
+
+const db = new Database(path.join(__dirname, 'data', 'sui-sub.db'));
+db.exec(`
+CREATE TABLE IF NOT EXISTS sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  panel_url TEXT NOT NULL,
+  panel_token TEXT NOT NULL DEFAULT '',
+  last_sync_at TEXT,
+  last_sync_status TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS nodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL,
+  node_hash TEXT NOT NULL,
+  node_name TEXT,
+  raw_link TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(source_id, node_hash),
+  FOREIGN KEY(source_id) REFERENCES sources(id)
+);
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  source_ids_json TEXT NOT NULL DEFAULT '[]',
+  node_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
+`);
+
+const sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
+if (!sourceCols.includes('panel_token')) db.exec(`ALTER TABLE sources ADD COLUMN panel_token TEXT NOT NULL DEFAULT ''`);
+if (!sourceCols.includes('last_sync_at')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_at TEXT`);
+if (!sourceCols.includes('last_sync_status')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_status TEXT`);
+const subCols = db.prepare(`PRAGMA table_info(subscriptions)`).all().map(x => x.name);
+if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD COLUMN node_ids_json TEXT NOT NULL DEFAULT '[]'`);
+
+app.use(express.json({ limit: '1mb' }));
+
+const now = () => new Date().toISOString();
+
+function signSession(user, exp) {
+  const payload = Buffer.from(JSON.stringify({ user, exp })).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifySession(token) {
+  if (!token || !token.includes('.')) return null;
+  const [payload, sig] = token.split('.');
+  const good = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  if (sig !== good) return null;
+  try {
+    const obj = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!obj?.user || !obj?.exp || obj.exp < Date.now()) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+function parseCookies(req) {
+  const str = req.headers.cookie || '';
+  const out = {};
+  for (const p of str.split(';')) {
+    const i = p.indexOf('=');
+    if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+  }
+  return out;
+}
+
+function requireAuth(req, res, next) {
+  if (req.path.startsWith('/api/auth/')) return next();
+  if (req.path.startsWith('/sub/')) return next();
+  const cookies = parseCookies(req);
+  const sess = verifySession(cookies.sui_sub_session || '');
+  if (!sess) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  req.user = sess.user;
+  next();
+}
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/sub/')) return requireAuth(req, res, next);
+  next();
+});
+
+const b64decodeLoose = (str) => {
+  const clean = (str || '').trim().replace(/\s+/g, '');
+  const pad = clean.length % 4 === 0 ? '' : '='.repeat(4 - (clean.length % 4));
+  try { return Buffer.from(clean + pad, 'base64').toString('utf8'); } catch { return ''; }
+};
+
+function parseSubscriptionText(text) {
+  const t = (text || '').trim();
+  if (!t) return [];
+  let body = t;
+  if (!/(vmess|vless|trojan|ss):\/\//i.test(t)) {
+    const decoded = b64decodeLoose(t);
+    if (/(vmess|vless|trojan|ss):\/\//i.test(decoded)) body = decoded;
+  }
+  const lines = body.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && /^(vmess|vless|trojan|ss):\/\//i.test(x));
+  return lines.map((raw) => {
+    let name = '';
+    const hashIdx = raw.indexOf('#');
+    if (hashIdx >= 0) name = decodeURIComponent(raw.slice(hashIdx + 1));
+    if (!name && raw.startsWith('vmess://')) {
+      const payload = b64decodeLoose(raw.slice('vmess://'.length));
+      try { name = JSON.parse(payload).ps || ''; } catch {}
+    }
+    if (!name) name = raw.slice(0, 48);
+    const node_hash = crypto.createHash('sha256').update(raw).digest('hex');
+    return { raw_link: raw, node_name: name, node_hash };
+  });
+}
+
+
+async function suiRequest(source, apiPath, method = 'GET', body) {
+  const base = String(source.panel_url || '').replace(/\/$/, '');
+  const headers = { 'x-panel-token': source.panel_token, 'content-type': 'application/json' };
+  const r = await fetch(`${base}${apiPath}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch {}
+  if (!r.ok) throw new Error(`${apiPath} HTTP ${r.status}`);
+  return json;
+}
+
+async function fetchSuiPanelLinks(panelUrl, panelToken) {
+  const base = String(panelUrl || '').replace(/\/$/, '');
+  const headers = { 'x-panel-token': panelToken };
+
+  const inbResp = await fetch(`${base}/api/inbounds`, { headers });
+  if (!inbResp.ok) throw new Error(`/api/inbounds HTTP ${inbResp.status}`);
+  const inbJson = await inbResp.json();
+  if (!inbJson?.success || !Array.isArray(inbJson?.obj)) throw new Error('SUI 返回异常(inbounds)');
+
+  const links = [];
+  for (const ib of inbJson.obj) {
+    if (!ib?.id) continue;
+    const r = await fetch(`${base}/api/inbounds/${ib.id}/links`, { headers });
+    if (!r.ok) continue;
+    const j = await r.json();
+    if (!j?.success || !Array.isArray(j?.obj)) continue;
+    for (const one of j.obj) if (typeof one === 'string' && one.trim()) links.push(one.trim());
+  }
+  return parseSubscriptionText(links.join('\n'));
+}
+
+function upsertNodes(sourceId, nodes) {
+  let inserted = 0, updated = 0, removed = 0;
+  const upsert = db.prepare(`
+    INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at)
+    VALUES(@source_id,@node_hash,@node_name,@raw_link,1,@created_at,@updated_at)
+    ON CONFLICT(source_id,node_hash) DO UPDATE SET
+      node_name=excluded.node_name,
+      raw_link=excluded.raw_link,
+      updated_at=excluded.updated_at
+  `);
+  const tx = db.transaction((arr) => {
+    const latestHashes = new Set(arr.map(x => x.node_hash));
+    for (const n of arr) {
+      const before = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_hash=?').get(sourceId, n.node_hash);
+      upsert.run({ source_id: sourceId, ...n, created_at: now(), updated_at: now() });
+      if (before) updated++; else inserted++;
+    }
+
+    // prune: SUI 面板已删除的节点，同步后本地也删除
+    const existing = db.prepare('SELECT id,node_hash FROM nodes WHERE source_id=?').all(sourceId);
+    for (const e of existing) {
+      if (!latestHashes.has(e.node_hash)) {
+        db.prepare('DELETE FROM nodes WHERE id=?').run(e.id);
+        removed++;
+      }
+    }
+
+    // 订阅里清理失效 node_ids
+    if (removed > 0) {
+      const validNodeIds = new Set(db.prepare('SELECT id FROM nodes').all().map(x => x.id));
+      const subs = db.prepare('SELECT id,node_ids_json FROM subscriptions').all();
+      for (const s of subs) {
+        const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+        const next = nodeIds.filter(id => validNodeIds.has(id));
+        if (next.length !== nodeIds.length) {
+          db.prepare('UPDATE subscriptions SET node_ids_json=? WHERE id=?').run(JSON.stringify(next), s.id);
+        }
+      }
+    }
+  });
+  tx(nodes);
+  const total = db.prepare('SELECT COUNT(*) as c FROM nodes WHERE source_id=?').get(sourceId).c;
+  return { inserted, updated, removed, fetched: nodes.length, total };
+}
+
+async function syncSource(id) {
+  const source = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
+  if (!source) throw new Error('source not found');
+  if (!source.panel_token) throw new Error('panel token empty');
+  const nodes = await fetchSuiPanelLinks(source.panel_url, source.panel_token);
+  const st = upsertNodes(id, nodes);
+  db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), 'ok', id);
+  return st;
+}
+
+let syncing = false;
+async function autoSyncAll() {
+  if (syncing) return;
+  syncing = true;
+  try {
+    const sources = db.prepare('SELECT id FROM sources ORDER BY id ASC').all();
+    for (const s of sources) {
+      try {
+        await syncSource(s.id);
+      } catch (e) {
+        db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), `error: ${String(e.message || e).slice(0, 160)}`, s.id);
+      }
+    }
+  } finally {
+    syncing = false;
+  }
+}
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (String(username) !== ADMIN_USER || String(password) !== ADMIN_PASS) {
+    return res.status(401).json({ ok: false, error: '用户名或密码错误' });
+  }
+  const exp = Date.now() + 7 * 24 * 3600 * 1000;
+  const token = signSession(username, exp);
+  res.setHeader('Set-Cookie', `sui_sub_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 3600}`);
+  res.json({ ok: true, username });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.setHeader('Set-Cookie', 'sui_sub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const cookies = parseCookies(req);
+  const sess = verifySession(cookies.sui_sub_session || '');
+  if (!sess) return res.status(401).json({ ok: false });
+  res.json({ ok: true, username: sess.user });
+});
+
+app.get('/api/sources', (req, res) => {
+  const sources = db.prepare('SELECT * FROM sources ORDER BY id DESC').all();
+  res.json({ ok: true, sources });
+});
+
+app.post('/api/sources', async (req, res) => {
+  try {
+    const { name, panel_url, panel_token } = req.body || {};
+    if (!name || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'name / panel_url / panel_token 必填' });
+
+    const ins = db.prepare('INSERT INTO sources(name,panel_url,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?)');
+    const result = ins.run(name.trim(), panel_url.trim(), panel_token.trim(), null, 'pending', now());
+    const source_id = Number(result.lastInsertRowid);
+
+    // 新源默认生成一个独立订阅链接
+    db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
+      .run(`${name}-default`, crypto.randomBytes(18).toString('base64url'), JSON.stringify([source_id]), '[]', now());
+
+    // 立即同步一次（异步）
+    syncSource(source_id).catch((e) => {
+      db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), `error: ${String(e.message || e).slice(0, 160)}`, source_id);
+    });
+
+    res.json({ ok: true, source_id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.delete('/api/sources/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const deletedNodeIds = db.prepare('SELECT id FROM nodes WHERE source_id=?').all(id).map(x=>x.id);
+  db.prepare('DELETE FROM nodes WHERE source_id=?').run(id);
+  db.prepare('DELETE FROM sources WHERE id=?').run(id);
+  // 清理订阅里失效的 source/node 选择
+  const deletedSet = new Set(deletedNodeIds);
+  const subs = db.prepare('SELECT id,source_ids_json,node_ids_json FROM subscriptions').all();
+  for (const s of subs) {
+    const sourceIds = (JSON.parse(s.source_ids_json || '[]') || []).map(Number).filter(Boolean).filter(x => x !== id);
+    const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean).filter(nid => !deletedSet.has(nid));
+    if (!sourceIds.length && !nodeIds.length) db.prepare('DELETE FROM subscriptions WHERE id=?').run(s.id);
+    else db.prepare('UPDATE subscriptions SET source_ids_json=?, node_ids_json=? WHERE id=?').run(JSON.stringify(sourceIds), JSON.stringify(nodeIds), s.id);
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/sources/sync-all', async (_req, res) => {
+  await autoSyncAll();
+  res.json({ ok: true });
+});
+
+
+app.get('/api/sui/:sourceId/inbounds', async (req, res) => {
+  try {
+    const sourceId = Number(req.params.sourceId);
+    const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
+    if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const j = await suiRequest(source, '/api/inbounds');
+    if (!j?.success || !Array.isArray(j?.obj)) return res.status(500).json({ ok: false, error: 'sui response invalid' });
+    res.json({ ok: true, inbounds: j.obj });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/sui/:sourceId/reality-quick', async (req, res) => {
+  try {
+    const sourceId = Number(req.params.sourceId);
+    const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
+    if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const remark = String(req.body?.remark || `quick-${Date.now()}`).trim();
+    const j = await suiRequest(source, '/api/inbounds/add-reality-quick', 'POST', { remark });
+    if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'create failed' });
+    await syncSource(sourceId).catch(()=>{});
+    res.json({ ok: true, obj: j.obj || null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.delete('/api/sui/:sourceId/inbounds/:inboundId', async (req, res) => {
+  try {
+    const sourceId = Number(req.params.sourceId);
+    const inboundId = Number(req.params.inboundId);
+    const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
+    if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'DELETE');
+    if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'delete failed' });
+    await syncSource(sourceId).catch(()=>{});
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/nodes', (req, res) => {
+  const sourceIds = String(req.query.sourceIds || '').split(',').map(x => Number(x)).filter(Boolean);
+  let rows;
+  if (sourceIds.length) {
+    const placeholders = sourceIds.map(() => '?').join(',');
+    rows = db.prepare(`
+      SELECT n.*, s.name as source_name
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      WHERE n.source_id IN (${placeholders})
+      ORDER BY n.id DESC
+    `).all(...sourceIds);
+  } else {
+    rows = db.prepare(`
+      SELECT n.*, s.name as source_name
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      ORDER BY n.id DESC
+    `).all();
+  }
+  res.json({ ok: true, nodes: rows });
+});
+
+app.post('/api/nodes/:id/toggle', (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare('SELECT * FROM nodes WHERE id=?').get(id);
+  if (!row) return res.status(404).json({ ok: false, error: 'node not found' });
+  const next = row.enabled ? 0 : 1;
+  db.prepare('UPDATE nodes SET enabled=?, updated_at=? WHERE id=?').run(next, now(), id);
+  res.json({ ok: true, enabled: next });
+});
+
+app.get('/api/subscriptions', (req, res) => {
+  const subs = db.prepare('SELECT * FROM subscriptions ORDER BY id DESC').all();
+  const sourceMap = new Map(db.prepare('SELECT id,name FROM sources').all().map(x => [x.id, x.name]));
+  const nodeMap = new Map(db.prepare('SELECT id,node_name,source_id FROM nodes').all().map(x => [x.id, x]));
+  const out = subs.map(s => {
+    const sourceIds = (JSON.parse(s.source_ids_json || '[]') || []).map(Number).filter(Boolean);
+    const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+    return {
+      id: s.id,
+      name: s.name,
+      token: s.token,
+      source_ids: sourceIds,
+      source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
+      node_ids: nodeIds,
+      node_names: nodeIds.map(i => nodeMap.get(i)?.node_name || `#${i}`).filter(Boolean),
+      url: `/sub/${s.token}`,
+      created_at: s.created_at
+    };
+  });
+  res.json({ ok: true, subscriptions: out });
+});
+
+app.post('/api/subscriptions', (req, res) => {
+  try {
+    const { name, source_ids, node_ids } = req.body || {};
+    const sids = Array.isArray(source_ids) ? source_ids.map(Number).filter(Boolean) : [];
+    const nids = Array.isArray(node_ids) ? node_ids.map(Number).filter(Boolean) : [];
+    if (!name) return res.status(400).json({ ok: false, error: 'name 必填' });
+    if (!sids.length && !nids.length) return res.status(400).json({ ok: false, error: '至少选择 source 或 node' });
+    const token = crypto.randomBytes(18).toString('base64url');
+    db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
+      .run(String(name).trim(), token, JSON.stringify(sids), JSON.stringify(nids), now());
+    res.json({ ok: true, token });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.put('/api/subscriptions/:id', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const old = db.prepare('SELECT * FROM subscriptions WHERE id=?').get(id);
+    if (!old) return res.status(404).json({ ok: false, error: 'not found' });
+    const name = String(req.body?.name || old.name).trim() || old.name;
+    const sids = Array.isArray(req.body?.source_ids) ? req.body.source_ids.map(Number).filter(Boolean) : (JSON.parse(old.source_ids_json || '[]') || []);
+    const nids = Array.isArray(req.body?.node_ids) ? req.body.node_ids.map(Number).filter(Boolean) : (JSON.parse(old.node_ids_json || '[]') || []);
+    if (!sids.length && !nids.length) return res.status(400).json({ ok: false, error: '至少选择 source 或 node' });
+    db.prepare('UPDATE subscriptions SET name=?, source_ids_json=?, node_ids_json=? WHERE id=?').run(name, JSON.stringify(sids), JSON.stringify(nids), id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.delete('/api/subscriptions/:id', (req, res) => {
+  const id = Number(req.params.id);
+  db.prepare('DELETE FROM subscriptions WHERE id=?').run(id);
+  res.json({ ok: true });
+});
+
+function getSubNodeLinksByToken(token) {
+  const sub = db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token);
+  if (!sub) return null;
+  const sourceIds = (JSON.parse(sub.source_ids_json || '[]') || []).map(Number).filter(Boolean);
+  const nodeIds = (JSON.parse(sub.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+
+  let rows = [];
+  if (nodeIds.length) {
+    const p = nodeIds.map(()=>'?').join(',');
+    rows = db.prepare(`SELECT id,raw_link FROM nodes WHERE enabled=1 AND id IN (${p}) ORDER BY id DESC`).all(...nodeIds);
+  } else if (sourceIds.length) {
+    const p = sourceIds.map(()=>'?').join(',');
+    rows = db.prepare(`SELECT id,raw_link FROM nodes WHERE enabled=1 AND source_id IN (${p}) ORDER BY id DESC`).all(...sourceIds);
+  }
+  return rows.map(x => x.raw_link);
+}
+
+app.get('/sub/:token', (req, res) => {
+  const links = getSubNodeLinksByToken(req.params.token);
+  if (links === null) return res.status(404).send('not found');
+  const encoded = Buffer.from(links.join('\n'), 'utf8').toString('base64');
+  res.setHeader('content-type', 'text/plain; charset=utf-8');
+  res.send(encoded);
+});
+
+app.get('/api/sub/:token/plain', (req, res) => {
+  const links = getSubNodeLinksByToken(req.params.token);
+  if (links === null) return res.status(404).send('not found');
+  res.setHeader('content-type', 'text/plain; charset=utf-8');
+  res.send(links.join('\n'));
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.listen(PORT, () => {
+  console.log(`sui-sub listening on :${PORT}`);
+  autoSyncAll().catch(() => {});
+  setInterval(() => autoSyncAll().catch(() => {}), AUTO_SYNC_MS);
+});
