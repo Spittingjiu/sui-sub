@@ -2,10 +2,9 @@
 
 SUI 订阅管理站：支持多源 SUI 面板聚合、自动同步、节点选择式订阅、SUI 面板节点管理（一键 Reality / 删除节点）。
 
-## 🔗 先有 SUI，再上 sui-sub
-你可以把 `sui` 理解成“节点工厂”，把 `sui-sub` 理解成“订阅调度台”：
-- `sui` 负责生产和管理节点
-- `sui-sub` 负责把多面板节点汇总、筛选、分发给客户端
+## 🚀 搭配 SUI Panel：让订阅分发更丝滑
+`sui` 负责把节点管好，`sui-sub` 负责把订阅发好。
+当你有多台机器、多套面板，或者想给不同设备下发不同节点组合时，`sui-sub` 会非常顺手。
 
 先安装 SUI Panel：
 - 项目地址：https://github.com/Spittingjiu/sui
