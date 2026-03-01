@@ -74,7 +74,9 @@
       </div>
       <div class="card">
         <h3>节点列表（按源查看）</h3>
-        <div id="nodeSourceTabs" class="row"></div>
+        <div class="row" style="margin-top:6px">
+          <select id="nodeSourceSelect" style="min-width:240px" onchange="setNodeSource(this.value)"></select>
+        </div>
         <div id="nodes" style="margin-top:8px"></div>
       </div>
     </div>
@@ -144,17 +146,21 @@ async function loadSources(){
   const j=await api('/api/sources'); sources=j.sources||[];
   const box=q('#sources'); if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';return;}
   box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
-  loadSuiSourceOptions(); renderNodeSourceTabs(); renderModalSourceFilter();
+  loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
-function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceTabs();renderNodes();}
+function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
 
 async function loadNodes(){const j=await api('/api/nodes');allNodes=j.nodes||[];renderNodes();}
-function renderNodeSourceTabs(){
-  const box=q('#nodeSourceTabs'); if(!box) return;
-  box.innerHTML=`<button class="${sourceViewId==='all'?'tab-on':''}" onclick="setNodeSource('all')">全部(${allNodes.length})</button>`+
-    sources.map(s=>`<button class="${sourceViewId===String(s.id)?'tab-on':''}" onclick="setNodeSource('${s.id}')">${s.name}(${allNodes.filter(n=>n.source_id===s.id).length})</button>`).join('');
+function renderNodeSourceSelect(){
+  const sel=q('#nodeSourceSelect'); if(!sel) return;
+  const options=[`<option value="all">全部源（${allNodes.length}）</option>`].concat(
+    sources.map(s=>`<option value="${s.id}">${s.name}（${allNodes.filter(n=>n.source_id===s.id).length}）</option>`)
+  );
+  sel.innerHTML=options.join('');
+  const has=[...sel.options].some(o=>o.value===String(sourceViewId));
+  sel.value=has?String(sourceViewId):'all';
 }
-function setNodeSource(v){sourceViewId=String(v);renderNodeSourceTabs();renderNodes();}
+function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();renderNodes();}
 function filteredNodes(){return sourceViewId==='all'?allNodes:allNodes.filter(n=>String(n.source_id)===sourceViewId)}
 function renderNodes(){
   const rows=filteredNodes(), box=q('#nodes');
