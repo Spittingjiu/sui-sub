@@ -488,6 +488,62 @@ app.get('/api/view/nodes', (req, res) => {
   res.json({ ok: true, nodes: rows });
 });
 
+
+app.get('/api/view/bootstrap', (req, res) => {
+  const sources = db.prepare(`
+    SELECT s.*, COALESCE(COUNT(n.id),0) AS node_count
+    FROM sources s
+    LEFT JOIN nodes n ON n.source_id=s.id
+    GROUP BY s.id
+    ORDER BY s.id DESC
+  `).all();
+
+  const nodes = db.prepare(`
+    SELECT n.*, s.name as source_name
+    FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+    ORDER BY n.id DESC
+  `).all();
+
+  const subs = db.prepare('SELECT * FROM subscriptions ORDER BY id DESC').all();
+  const sourceMap = new Map(sources.map(x => [x.id, x.name]));
+  const subscriptions = subs.map(s => {
+    const sourceIds = (JSON.parse(s.source_ids_json || '[]') || []).map(Number).filter(Boolean);
+    const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+    const urlPath = `/sub/${s.token}`;
+    return {
+      id: s.id,
+      name: s.name,
+      source_ids: sourceIds,
+      source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
+      node_ids: nodeIds,
+      url: urlPath,
+      full_url: `${req.protocol}://${req.get('host')}${urlPath}`
+    };
+  });
+
+  res.json({ ok: true, sources, nodes, subscriptions });
+});
+
+app.get('/api/view/modal-nodes', (req, res) => {
+  const sourceId = Number(req.query.sourceId || 0);
+  let rows;
+  if (sourceId > 0) {
+    rows = db.prepare(`
+      SELECT n.*, s.name as source_name
+      FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+      WHERE n.source_id=?
+      ORDER BY n.id DESC
+    `).all(sourceId);
+  } else {
+    rows = db.prepare(`
+      SELECT n.*, s.name as source_name
+      FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+      ORDER BY n.id DESC
+    `).all();
+  }
+  res.json({ ok: true, nodes: rows });
+});
+
 app.get('/api/view/subscriptions', (req, res) => {
   const subs = db.prepare('SELECT * FROM subscriptions ORDER BY id DESC').all();
   const sourceMap = new Map(db.prepare('SELECT id,name FROM sources').all().map(x => [x.id, x.name]));
