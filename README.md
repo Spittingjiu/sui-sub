@@ -20,8 +20,8 @@ npm start
 ## Docker 安装
 ### 方式1：Docker Compose（推荐）
 ```bash
-git clone https://github.com/Spittingjiu/sui-sub.git
-cd sui-sub
+mkdir -p /opt/sui-sub && cd /opt/sui-sub
+git clone https://github.com/Spittingjiu/sui-sub.git .
 mkdir -p data
 docker compose up -d --build
 ```
