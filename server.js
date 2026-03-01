@@ -15,6 +15,7 @@ const ADMIN_USER = process.env.SUI_SUB_USER || 'admin';
 const ADMIN_PASS = process.env.SUI_SUB_PASS || 'admin123';
 const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-change-me';
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
+const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 
 
@@ -141,6 +142,17 @@ function insertSourceRow(name, panel_url, panel_token) {
 app.use(express.json({ limit: '1mb' }));
 
 const now = () => new Date().toISOString();
+
+let viewCache = new Map();
+function cacheGet(key){
+  const v = viewCache.get(key);
+  if (!v) return null;
+  if (v.exp < Date.now()) { viewCache.delete(key); return null; }
+  return v.data;
+}
+function cacheSet(key, data, ttl = VIEW_CACHE_MS){ viewCache.set(key, { data, exp: Date.now() + ttl }); }
+function cacheInvalidate(){ viewCache.clear(); }
+
 
 function signSession(user, exp) {
   const payload = Buffer.from(JSON.stringify({ user, exp })).toString('base64url');
@@ -363,6 +375,7 @@ app.post('/api/admin/user', (req, res) => {
     if (!username) return res.status(400).json({ ok: false, error: 'username 必填' });
     if (!password || password.length < 6) return res.status(400).json({ ok: false, error: 'password 至少6位' });
     setAdminSettings(username, password);
+    cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -399,6 +412,7 @@ app.post('/api/bridge/push-source', async (req, res) => {
         .run(`${name}-default`, crypto.randomBytes(18).toString('base64url'), JSON.stringify([source_id]), '[]', now());
     }
     syncSource(source_id).catch(()=>{});
+    cacheInvalidate();
     res.json({ ok: true, source_id });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -423,10 +437,11 @@ app.post('/api/sources', async (req, res) => {
       .run(`${name}-default`, crypto.randomBytes(18).toString('base64url'), JSON.stringify([source_id]), '[]', now());
 
     // 立即同步一次（异步）
-    syncSource(source_id).catch((e) => {
+    syncSource(source_id).then(()=>cacheInvalidate()).catch((e) => {
       db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), `error: ${String(e.message || e).slice(0, 160)}`, source_id);
     });
 
+    cacheInvalidate();
     res.json({ ok: true, source_id });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -447,17 +462,23 @@ app.delete('/api/sources/:id', (req, res) => {
     if (!sourceIds.length && !nodeIds.length) db.prepare('DELETE FROM subscriptions WHERE id=?').run(s.id);
     else db.prepare('UPDATE subscriptions SET source_ids_json=?, node_ids_json=? WHERE id=?').run(JSON.stringify(sourceIds), JSON.stringify(nodeIds), s.id);
   }
+  cacheInvalidate();
   res.json({ ok: true });
 });
 
 app.post('/api/sources/sync-all', async (_req, res) => {
   await autoSyncAll();
+  cacheInvalidate();
   res.json({ ok: true });
 });
 
 
 // backend-view endpoints: keep business aggregation on server side
 app.get('/api/view/home', (_req, res) => {
+  const key = 'view-home';
+  const hit = cacheGet(key);
+  if (hit) return res.json({ ok: true, sources: hit, cached: true });
+
   const rows = db.prepare(`
     SELECT s.*, COALESCE(COUNT(n.id),0) AS node_count
     FROM sources s
@@ -465,11 +486,15 @@ app.get('/api/view/home', (_req, res) => {
     GROUP BY s.id
     ORDER BY s.id DESC
   `).all();
-  res.json({ ok: true, sources: rows });
+  cacheSet(key, rows);
+  res.json({ ok: true, sources: rows, cached: false });
 });
 
 app.get('/api/view/nodes', (req, res) => {
   const sourceId = Number(req.query.sourceId || 0);
+  const key = `view-nodes:${sourceId}`;
+  const hit = cacheGet(key);
+  if (hit) return res.json({ ok: true, nodes: hit, cached: true });
   let rows;
   if (sourceId > 0) {
     rows = db.prepare(`
@@ -485,11 +510,16 @@ app.get('/api/view/nodes', (req, res) => {
       ORDER BY n.id DESC
     `).all();
   }
-  res.json({ ok: true, nodes: rows });
+  cacheSet(key, rows);
+  res.json({ ok: true, nodes: rows, cached: false });
 });
 
 
 app.get('/api/view/bootstrap', (req, res) => {
+  const key = 'bootstrap';
+  const hit = cacheGet(key);
+  if (hit) return res.json({ ok: true, ...hit, cached: true });
+
   const sources = db.prepare(`
     SELECT s.*, COALESCE(COUNT(n.id),0) AS node_count
     FROM sources s
@@ -521,11 +551,16 @@ app.get('/api/view/bootstrap', (req, res) => {
     };
   });
 
-  res.json({ ok: true, sources, nodes, subscriptions });
+  const payload = { sources, nodes, subscriptions };
+  cacheSet(key, payload);
+  res.json({ ok: true, ...payload, cached: false });
 });
 
 app.get('/api/view/modal-nodes', (req, res) => {
   const sourceId = Number(req.query.sourceId || 0);
+  const key = `modal-nodes:${sourceId}`;
+  const hit = cacheGet(key);
+  if (hit) return res.json({ ok: true, nodes: hit, cached: true });
   let rows;
   if (sourceId > 0) {
     rows = db.prepare(`
@@ -541,10 +576,15 @@ app.get('/api/view/modal-nodes', (req, res) => {
       ORDER BY n.id DESC
     `).all();
   }
-  res.json({ ok: true, nodes: rows });
+  cacheSet(key, rows);
+  res.json({ ok: true, nodes: rows, cached: false });
 });
 
 app.get('/api/view/subscriptions', (req, res) => {
+  const key = 'view-subscriptions';
+  const hit = cacheGet(key);
+  if (hit) return res.json({ ok: true, subscriptions: hit, cached: true });
+
   const subs = db.prepare('SELECT * FROM subscriptions ORDER BY id DESC').all();
   const sourceMap = new Map(db.prepare('SELECT id,name FROM sources').all().map(x => [x.id, x.name]));
   const out = subs.map(s => {
@@ -561,7 +601,8 @@ app.get('/api/view/subscriptions', (req, res) => {
       full_url: `${req.protocol}://${req.get('host')}${urlPath}`
     };
   });
-  res.json({ ok: true, subscriptions: out });
+  cacheSet(key, out);
+  res.json({ ok: true, subscriptions: out, cached: false });
 });
 
 
@@ -587,6 +628,7 @@ app.post('/api/sui/:sourceId/reality-quick', async (req, res) => {
     const j = await suiRequest(source, '/api/inbounds/add-reality-quick', 'POST', { remark });
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'create failed' });
     await syncSource(sourceId).catch(()=>{});
+    cacheInvalidate();
     res.json({ ok: true, obj: j.obj || null });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -602,6 +644,7 @@ app.delete('/api/sui/:sourceId/inbounds/:inboundId', async (req, res) => {
     const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'DELETE');
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'delete failed' });
     await syncSource(sourceId).catch(()=>{});
+    cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -637,6 +680,7 @@ app.post('/api/nodes/:id/toggle', (req, res) => {
   if (!row) return res.status(404).json({ ok: false, error: 'node not found' });
   const next = row.enabled ? 0 : 1;
   db.prepare('UPDATE nodes SET enabled=?, updated_at=? WHERE id=?').run(next, now(), id);
+  cacheInvalidate();
   res.json({ ok: true, enabled: next });
 });
 
@@ -672,6 +716,7 @@ app.post('/api/subscriptions', (req, res) => {
     const token = crypto.randomBytes(18).toString('base64url');
     db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
       .run(String(name).trim(), token, JSON.stringify(sids), JSON.stringify(nids), now());
+    cacheInvalidate();
     res.json({ ok: true, token });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -688,6 +733,7 @@ app.put('/api/subscriptions/:id', (req, res) => {
     const nids = Array.isArray(req.body?.node_ids) ? req.body.node_ids.map(Number).filter(Boolean) : (JSON.parse(old.node_ids_json || '[]') || []);
     if (!sids.length && !nids.length) return res.status(400).json({ ok: false, error: '至少选择 source 或 node' });
     db.prepare('UPDATE subscriptions SET name=?, source_ids_json=?, node_ids_json=? WHERE id=?').run(name, JSON.stringify(sids), JSON.stringify(nids), id);
+    cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -697,6 +743,7 @@ app.put('/api/subscriptions/:id', (req, res) => {
 app.delete('/api/subscriptions/:id', (req, res) => {
   const id = Number(req.params.id);
   db.prepare('DELETE FROM subscriptions WHERE id=?').run(id);
+  cacheInvalidate();
   res.json({ ok: true });
 });
 
