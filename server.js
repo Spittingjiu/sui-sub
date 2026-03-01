@@ -322,12 +322,13 @@ app.post('/api/admin/user', (req, res) => {
 app.post('/api/bridge/push-source', async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
     const name = String(req.body?.name || 'sui-auto').trim();
     const panel_url = String(req.body?.panel_url || '').trim();
     const panel_token = String(req.body?.panel_token || '').trim();
-    if (!username || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'username/panel_url/panel_token 必填' });
+    if (!username || !password || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'username/password/panel_url/panel_token 必填' });
     const adm = getAdminSettings();
-    if (username !== adm.username) return res.status(403).json({ ok: false, error: 'username 不匹配' });
+    if (username !== adm.username || password !== adm.password) return res.status(403).json({ ok: false, error: 'sub 账号或密码不匹配' });
 
     const old = db.prepare('SELECT * FROM sources WHERE panel_url=?').get(panel_url);
     let source_id;
