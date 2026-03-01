@@ -148,7 +148,6 @@ function renderSourcesUI(){
   box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
-async function loadSources(){ const j=await api('/api/view/home'); sources=j.sources||[]; renderSourcesUI(); }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
 
 async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();}
