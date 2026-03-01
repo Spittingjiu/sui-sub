@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
+import fs from 'node:fs';
 import fetch from 'node-fetch';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +15,56 @@ const ADMIN_USER = process.env.SUI_SUB_USER || 'admin';
 const ADMIN_PASS = process.env.SUI_SUB_PASS || 'admin123';
 const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-change-me';
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
+const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
+
+
+
+function ensureE2EEKeys(){
+  try {
+    if (!fs.existsSync(E2EE_KEYS_FILE)) {
+      const kp = crypto.generateKeyPairSync('x25519');
+      const privPem = kp.privateKey.export({type:'pkcs8',format:'pem'}).toString();
+      const pubDer = kp.publicKey.export({type:'spki',format:'der'});
+      fs.writeFileSync(E2EE_KEYS_FILE, JSON.stringify({ privateKeyPem: privPem, publicKeyB64: pubDer.toString('base64url') }, null, 2));
+    }
+    const k = JSON.parse(fs.readFileSync(E2EE_KEYS_FILE, 'utf8'));
+    return {
+      privateKey: crypto.createPrivateKey(k.privateKeyPem),
+      publicKeyB64: String(k.publicKeyB64 || '')
+    };
+  } catch (e) {
+    throw new Error('E2EE key init failed: ' + e.message);
+  }
+}
+
+const E2EE = ensureE2EEKeys();
+const NONCE_CACHE = new Map();
+function seenNonce(nonce){
+  const nowTs = Date.now();
+  for (const [k,v] of NONCE_CACHE.entries()) if (v < nowTs) NONCE_CACHE.delete(k);
+  if (NONCE_CACHE.has(nonce)) return true;
+  NONCE_CACHE.set(nonce, nowTs + 10 * 60 * 1000);
+  return false;
+}
+
+function decryptBridgePayload(body){
+  if (!body?.e2ee) return body;
+  const senderPub = crypto.createPublicKey({ key: Buffer.from(String(body.senderPub||''), 'base64url'), format:'der', type:'spki' });
+  const secret = crypto.diffieHellman({ privateKey: E2EE.privateKey, publicKey: senderPub });
+  const key = crypto.createHash('sha256').update(secret).digest();
+  const iv = Buffer.from(String(body.iv||''), 'base64url');
+  const tag = Buffer.from(String(body.tag||''), 'base64url');
+  const ct = Buffer.from(String(body.ciphertext||''), 'base64url');
+  const ts = Number(body.ts||0);
+  const nonce = String(body.nonce||'');
+  if (!nonce || !ts) throw new Error('bad e2ee envelope');
+  if (Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new Error('e2ee envelope expired');
+  if (seenNonce(nonce)) throw new Error('replay detected');
+  const dec = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  dec.setAuthTag(tag);
+  const pt = Buffer.concat([dec.update(ct), dec.final()]).toString('utf8');
+  return JSON.parse(pt);
+}
 
 const db = new Database(path.join(__dirname, 'data', 'sui-sub.db'));
 db.exec(`
@@ -318,14 +369,19 @@ app.post('/api/admin/user', (req, res) => {
   }
 });
 
+app.get('/api/bridge/e2ee-meta', (_req, res) => {
+  res.json({ ok: true, alg: 'x25519+aes-256-gcm', publicKey: E2EE.publicKeyB64 });
+});
+
 // bridge: 供 SUI 面板一键写入 source（按用户名匹配）
 app.post('/api/bridge/push-source', async (req, res) => {
   try {
-    const username = String(req.body?.username || '').trim();
-    const password = String(req.body?.password || '');
-    const name = String(req.body?.name || 'sui-auto').trim();
-    const panel_url = String(req.body?.panel_url || '').trim();
-    const panel_token = String(req.body?.panel_token || '').trim();
+    const payload = decryptBridgePayload(req.body || {});
+    const username = String(payload?.username || '').trim();
+    const password = String(payload?.password || '');
+    const name = String(payload?.name || 'sui-auto').trim();
+    const panel_url = String(payload?.panel_url || '').trim();
+    const panel_token = String(payload?.panel_token || '').trim();
     if (!username || !password || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'username/password/panel_url/panel_token 必填' });
     const adm = getAdminSettings();
     if (username !== adm.username || password !== adm.password) return res.status(403).json({ ok: false, error: 'sub 账号或密码不匹配' });
