@@ -122,7 +122,7 @@
 
 <script>
 const q=s=>document.querySelector(s);
-let sources=[], allNodes=[], sourceViewId='all', editingSubId=null;
+let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
 const selectedNodeIds=new Set();
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
 async function api(url,opt={}){const r=await fetch(url,{headers:{'content-type':'application/json'},...opt});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
@@ -143,38 +143,38 @@ async function deleteSource(id){if(!confirm('确认删除该源？'))return;awai
 
 function sourceSyncText(s){if(!s.last_sync_at) return '未同步'; return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;}
 async function loadSources(){
-  const j=await api('/api/sources'); sources=j.sources||[];
+  const j=await api('/api/view/home'); sources=j.sources||[];
   const box=q('#sources'); if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';return;}
   box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
 
-async function loadNodes(){const j=await api('/api/nodes');allNodes=j.nodes||[];renderNodes();}
+async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();}
 function renderNodeSourceSelect(){
   const sel=q('#nodeSourceSelect'); if(!sel) return;
-  const options=[`<option value="all">全部源（${allNodes.length}）</option>`].concat(
-    sources.map(s=>`<option value="${s.id}">${s.name}（${allNodes.filter(n=>n.source_id===s.id).length}）</option>`)
+  const total = sources.reduce((a,s)=>a+Number(s.node_count||0),0);
+  const options=[`<option value=\"all\">全部源（${total}）</option>`].concat(
+    sources.map(s=>`<option value=\"${s.id}\">${s.name}（${Number(s.node_count||0)}）</option>`)
   );
   sel.innerHTML=options.join('');
   const has=[...sel.options].some(o=>o.value===String(sourceViewId));
   sel.value=has?String(sourceViewId):'all';
 }
-function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();renderNodes();}
-function filteredNodes(){return sourceViewId==='all'?allNodes:allNodes.filter(n=>String(n.source_id)===sourceViewId)}
+function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();loadNodes();}
 function renderNodes(){
-  const rows=filteredNodes(), box=q('#nodes');
+  const rows=allNodes, box=q('#nodes');
   if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点</div>';return;}
   box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>`<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td><button onclick="toggleNode(${n.id})">切换</button></td></tr>`).join('')}</tbody></table>`;
 }
 async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});await loadNodes();}
 
 async function loadSubs(){
-  const j=await api('/api/subscriptions'); const arr=j.subscriptions||[]; const box=q('#subs');
+  const j=await api('/api/view/subscriptions'); const arr=j.subscriptions||[]; const box=q('#subs');
   if(!arr.length){box.innerHTML='<div class="muted">暂无</div>';return;}
   box.innerHTML='';
   for(const s of arr){
-    const full=`${location.origin}${s.url}`, importUri=`xray://import?url=${encodeURIComponent(full)}`;
+    const full=(s.full_url||(`${location.origin}${s.url}`)), importUri=`xray://import?url=${encodeURIComponent(full)}`;
     const row=document.createElement('div');row.className='src-item';
     row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:360px"><button data-act="copy">复制</button><a href="${importUri}"><button data-act="import">一键导入</button></a><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
@@ -191,16 +191,16 @@ function renderModalSourceFilter(){
   const old=sel.value||'all'; sel.innerHTML='<option value="all">全部源</option>'+sources.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
   sel.value=[...sel.options].some(o=>o.value===old)?old:'all'; sel.onchange=renderSubModal;
 }
-function modalNodes(){const sid=q('#modalSourceFilter')?.value||'all'; return sid==='all'?allNodes:allNodes.filter(n=>String(n.source_id)===sid)}
+function modalNodes(){const sid=q('#modalSourceFilter')?.value||'all'; return sid==='all'?modalAllNodes:modalAllNodes.filter(n=>String(n.source_id)===sid)}
 function renderSubModal(){
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
-  const chosen=allNodes.filter(n=>selectedNodeIds.has(n.id));
+  const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
   picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${n.node_name||('#'+n.id)} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
   list.innerHTML=nodes.length?nodes.map(n=>`<label class="row" style="margin:4px 0"><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''}> <span>${n.node_name||('#'+n.id)}</span> <span class="muted">(${n.source_name||n.source_id})</span></label>`).join(''):'<div class="muted">该源暂无节点</div>';
   list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid);if(e.target.checked)selectedNodeIds.add(id);else selectedNodeIds.delete(id);renderSubModal();});
   picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
 }
-function openSubModal(sub=null){editingSubId=sub?.id||null;q('#subModalTitle').textContent=sub?'编辑订阅':'新建订阅';q('#modalSubName').value=sub?.name||'';selectedNodeIds.clear();(sub?.node_ids||[]).forEach(id=>selectedNodeIds.add(Number(id)));renderSubModal();q('#subModal').classList.remove('hide');}
+async function openSubModal(sub=null){editingSubId=sub?.id||null;q('#subModalTitle').textContent=sub?'编辑订阅':'新建订阅';q('#modalSubName').value=sub?.name||'';selectedNodeIds.clear();(sub?.node_ids||[]).forEach(id=>selectedNodeIds.add(Number(id)));const j=await api('/api/view/nodes');modalAllNodes=j.nodes||[];renderSubModal();q('#subModal').classList.remove('hide');}
 function closeSubModal(){q('#subModal').classList.add('hide')}
 async function saveSubModal(){const nodeIds=[...selectedNodeIds], name=(q('#modalSubName').value||'').trim()||`sub-${Date.now()}`; if(!nodeIds.length)return toast('请先选择节点','err'); if(editingSubId) await api('/api/subscriptions/'+editingSubId,{method:'PUT',body:JSON.stringify({name,node_ids:nodeIds})}); else await api('/api/subscriptions',{method:'POST',body:JSON.stringify({name,node_ids:nodeIds})}); closeSubModal();loadSubs();}
 
@@ -212,7 +212,7 @@ async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该
 async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';}
 async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim();if(!username||password.length<6)return toast('用户名必填，密码至少6位','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password})});q('#adminPass').value='';toast('账号已更新（下次登录生效）','ok');}
 
-async function refreshAll(){await loadSources();await loadNodes();await loadSubs();}
+async function refreshAll(){await loadSources();if(!sources.some(x=>String(x.id)===String(sourceViewId)))sourceViewId='all';renderNodeSourceSelect();await loadNodes();await loadSubs();}
 async function init(){switchTab('home');await refreshAll();setInterval(async()=>{await api('/api/sources/sync-all',{method:'POST',body:'{}'}).catch(()=>{});await loadSources();await loadNodes();},60000)}
 q('#lp')?.addEventListener('keydown',e=>{if(e.key==='Enter')login()});
 checkAuth();
