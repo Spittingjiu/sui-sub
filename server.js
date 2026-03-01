@@ -376,6 +376,7 @@ app.get('/api/bridge/e2ee-meta', (_req, res) => {
 // bridge: 供 SUI 面板一键写入 source（按用户名匹配）
 app.post('/api/bridge/push-source', async (req, res) => {
   try {
+    if (!req.body?.e2ee) return res.status(400).json({ ok: false, error: 'e2ee required' });
     const payload = decryptBridgePayload(req.body || {});
     const username = String(payload?.username || '').trim();
     const password = String(payload?.password || '');
