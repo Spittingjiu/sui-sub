@@ -124,6 +124,7 @@
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
 const selectedNodeIds=new Set();
+const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
 async function api(url,opt={}){const r=await fetch(url,{headers:{'content-type':'application/json'},...opt});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
 function setAuthMode(v){document.body.classList.toggle('auth-mode',v)}
@@ -211,7 +212,7 @@ function renderSubModal(){
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
   const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
   picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${n.node_name||('#'+n.id)} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
-  list.innerHTML=nodes.length?nodes.map(n=>`<label class="row" style="margin:4px 0"><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''}> <span>${n.node_name||('#'+n.id)}</span> <span class="muted">(${n.source_name||n.source_id})</span></label>`).join(''):'<div class="muted">该源暂无节点</div>';
+  list.innerHTML=nodes.length?nodes.map(n=>`<label style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin:6px 0;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||('#'+n.id))}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join(''):'<div class="muted">该源暂无节点</div>';
   list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid);if(e.target.checked)selectedNodeIds.add(id);else selectedNodeIds.delete(id);renderSubModal();});
   picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
 }
