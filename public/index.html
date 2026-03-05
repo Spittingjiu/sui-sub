@@ -39,7 +39,7 @@
     <div class="row" style="justify-content:space-between;align-items:flex-start">
       <div>
         <div class="row" style="gap:6px;margin-bottom:8px">
-          <button id="tabHomeBtn" onclick="switchTab('home')">首页</button>
+          <button id="tabHomeBtn" onclick="switchTab('home')">源</button>
           <button id="tabNodeBtn" onclick="switchTab('nodes')">节点&订阅</button>
           <button id="tabSuiBtn" onclick="switchTab('sui')">SUI管理</button>
           <button id="tabUserBtn" onclick="switchTab('user')">用户管理</button>
@@ -139,13 +139,21 @@ async function login(){try{await api('/api/auth/login',{method:'POST',body:JSON.
 async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});location.reload();}
 
 async function addSource(){try{await api('/api/sources',{method:'POST',body:JSON.stringify({name:q('#name').value.trim(),panel_url:q('#panel').value.trim(),panel_token:q('#token').value.trim()})});q('#name').value='';q('#panel').value='';q('#token').value='';toast('已保存，自动同步中…','ok');await refreshAll();}catch(e){toast(e.message,'err')}}
+async function editSourceName(id){
+  const oldName=(sources.find(x=>Number(x.id)===Number(id))||{}).name||'';
+  const name=(prompt('请输入新的源名称：',oldName)||'').trim();
+  if(!name || name===oldName) return;
+  await api('/api/sources/'+id,{method:'PUT',body:JSON.stringify({name})});
+  toast('源名称已更新','ok');
+  await refreshAll();
+}
 async function deleteSource(id){if(!confirm('确认删除该源？'))return;await api('/api/sources/'+id,{method:'DELETE'});await refreshAll();}
 
 function sourceSyncText(s){if(!s.last_sync_at) return '未同步'; return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;}
 function renderSourcesUI(){
   const box=q('#sources');
   if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter(); return;}
-  box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
+  box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}

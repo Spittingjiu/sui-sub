@@ -408,8 +408,6 @@ app.post('/api/bridge/push-source', async (req, res) => {
     } else {
       const r = insertSourceRow(name, panel_url, panel_token);
       source_id = Number(r.lastInsertRowid);
-      db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
-        .run(`${name}-default`, crypto.randomBytes(18).toString('base64url'), JSON.stringify([source_id]), '[]', now());
     }
     syncSource(source_id).catch(()=>{});
     cacheInvalidate();
@@ -432,10 +430,6 @@ app.post('/api/sources', async (req, res) => {
     const result = insertSourceRow(name.trim(), panel_url.trim(), panel_token.trim());
     const source_id = Number(result.lastInsertRowid);
 
-    // 新源默认生成一个独立订阅链接
-    db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
-      .run(`${name}-default`, crypto.randomBytes(18).toString('base64url'), JSON.stringify([source_id]), '[]', now());
-
     // 立即同步一次（异步）
     syncSource(source_id).then(()=>cacheInvalidate()).catch((e) => {
       db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), `error: ${String(e.message || e).slice(0, 160)}`, source_id);
@@ -443,6 +437,21 @@ app.post('/api/sources', async (req, res) => {
 
     cacheInvalidate();
     res.json({ ok: true, source_id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.put('/api/sources/:id', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const old = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
+    if (!old) return res.status(404).json({ ok: false, error: 'source not found' });
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ ok: false, error: 'name 必填' });
+    db.prepare('UPDATE sources SET name=? WHERE id=?').run(name, id);
+    cacheInvalidate();
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
