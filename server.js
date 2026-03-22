@@ -1061,27 +1061,36 @@ function buildClashConfigByLinks(links = []) {
       direct: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt', path: './ruleset/loyalsoldier/direct.txt', interval: 86400 },
       private: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/private.txt', path: './ruleset/loyalsoldier/private.txt', interval: 86400 },
       gfw: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt', path: './ruleset/loyalsoldier/gfw.txt', interval: 86400 },
-      'tld-not-cn': { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt', path: './ruleset/loyalsoldier/tld-not-cn.txt', interval: 86400 },
+      telegramcidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt', path: './ruleset/loyalsoldier/telegramcidr.txt', interval: 86400 },
       cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 },
       applications: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/applications.txt', path: './ruleset/loyalsoldier/applications.txt', interval: 86400 }
     },
     rules: [
       'RULE-SET,reject,REJECT',
+
+      'RULE-SET,private,DIRECT',
+      'RULE-SET,lancidr,DIRECT,no-resolve',
+
       'RULE-SET,icloud,DIRECT',
       'RULE-SET,apple,DIRECT',
-      'RULE-SET,google,🚀 节点选择',
-      'RULE-SET,proxy,🚀 节点选择',
-      'RULE-SET,direct,DIRECT',
-      'RULE-SET,private,DIRECT',
-      'RULE-SET,gfw,🚀 节点选择',
-      'RULE-SET,lancidr,DIRECT,no-resolve',
-      'RULE-SET,cncidr,DIRECT,no-resolve',
       'RULE-SET,applications,DIRECT',
+      'RULE-SET,direct,DIRECT',
+
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
+      'RULE-SET,cncidr,DIRECT,no-resolve',
+
+      'RULE-SET,google,🤖 AI',
+      'DOMAIN-SUFFIX,youtube.com,📺 YouTube',
+      'DOMAIN-SUFFIX,googlevideo.com,📺 YouTube',
+      'DOMAIN-SUFFIX,youtu.be,📺 YouTube',
+      'RULE-SET,telegramcidr,✈️ Telegram,no-resolve',
+
+      'RULE-SET,gfw,🚀 节点选择',
+      'RULE-SET,proxy,🚀 节点选择',
+
       'GEOSITE,geolocation-!cn,🚀 节点选择',
-      'RULE-SET,tld-not-cn,🚀 节点选择',
       'MATCH,🚀 节点选择'
     ]
   };
