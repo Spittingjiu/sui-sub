@@ -1,5 +1,6 @@
 node_modules/
 data/*.db
+data/e2ee-keys.json
 .env
 *.log
 .DS_Store

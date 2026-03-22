@@ -756,6 +756,343 @@ app.delete('/api/subscriptions/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+function decodeHashName(raw = '') {
+  const i = String(raw).indexOf('#');
+  if (i < 0) return '';
+  try { return decodeURIComponent(String(raw).slice(i + 1)).trim(); } catch { return String(raw).slice(i + 1).trim(); }
+}
+
+function b64decodeUrlSafe(s = '') {
+  const t = String(s || '').replace(/-/g, '+').replace(/_/g, '/').trim();
+  return b64decodeLoose(t);
+}
+
+function uniqNameFactory() {
+  const seen = new Map();
+  return (name) => {
+    const base = String(name || 'node').trim() || 'node';
+    const n = (seen.get(base) || 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  };
+}
+
+function parseLinkToClashProxy(raw, uniqueName) {
+  const link = String(raw || '').trim();
+  if (!link) return null;
+
+  if (link.startsWith('vmess://')) {
+    const payload = b64decodeUrlSafe(link.slice('vmess://'.length));
+    let j = {};
+    try { j = JSON.parse(payload || '{}'); } catch { return null; }
+    const name = uniqueName(j.ps || decodeHashName(link) || `vmess-${j.add || 'node'}`);
+    const network = j.net || 'tcp';
+    const p = {
+      name,
+      type: 'vmess',
+      server: j.add,
+      port: Number(j.port || 0),
+      uuid: j.id,
+      alterId: Number(j.aid || 0),
+      cipher: j.scy || 'auto',
+      udp: true,
+      network
+    };
+    if (!p.server || !p.port || !p.uuid) return null;
+    const tlsOn = String(j.tls || '').toLowerCase() === 'tls';
+    if (tlsOn) p.tls = true;
+    if (j.sni) p.servername = j.sni;
+    if (network === 'ws') {
+      p['ws-opts'] = { path: j.path || '/', headers: { Host: j.host || j.add || '' } };
+    }
+    return p;
+  }
+
+  if (link.startsWith('vless://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `vless-${u.hostname}`);
+    const security = (u.searchParams.get('security') || 'none').toLowerCase();
+    const network = (u.searchParams.get('type') || 'tcp').toLowerCase();
+    const p = {
+      name,
+      type: 'vless',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      uuid: decodeURIComponent(u.username || ''),
+      udp: true,
+      network
+    };
+    if (!p.server || !p.port || !p.uuid) return null;
+    const flow = u.searchParams.get('flow');
+    if (flow) p.flow = flow;
+    const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
+    if (security !== 'none') p.tls = true;
+    if (sni) p.servername = sni;
+    if (network === 'ws') {
+      p['ws-opts'] = {
+        path: u.searchParams.get('path') || '/',
+        headers: { Host: u.searchParams.get('host') || sni || u.hostname }
+      };
+    }
+    if (security === 'reality') {
+      const pbk = u.searchParams.get('pbk') || '';
+      const sid = u.searchParams.get('sid') || '';
+      const fp = u.searchParams.get('fp') || 'chrome';
+      if (pbk) p['reality-opts'] = { 'public-key': pbk, 'short-id': sid };
+      p['client-fingerprint'] = fp;
+    }
+    return p;
+  }
+
+  if (link.startsWith('trojan://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `trojan-${u.hostname}`);
+    const network = (u.searchParams.get('type') || 'tcp').toLowerCase();
+    const security = (u.searchParams.get('security') || 'tls').toLowerCase();
+    const p = {
+      name,
+      type: 'trojan',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      password: decodeURIComponent(u.username || ''),
+      udp: true,
+      network
+    };
+    if (!p.server || !p.port || !p.password) return null;
+    if (security !== 'none') p.tls = true;
+    const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
+    if (sni) p.sni = sni;
+    if (network === 'ws') {
+      p['ws-opts'] = {
+        path: u.searchParams.get('path') || '/',
+        headers: { Host: u.searchParams.get('host') || sni || u.hostname }
+      };
+    }
+    return p;
+  }
+
+  if (link.startsWith('ss://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `ss-${u.hostname}`);
+    let method = '', password = '';
+    if (u.password) {
+      method = decodeURIComponent(u.username || '');
+      password = decodeURIComponent(u.password || '');
+    } else {
+      const decoded = b64decodeUrlSafe(decodeURIComponent(u.username || ''));
+      const i = decoded.indexOf(':');
+      if (i > 0) {
+        method = decoded.slice(0, i);
+        password = decoded.slice(i + 1);
+      }
+    }
+    const p = {
+      name,
+      type: 'ss',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      cipher: method,
+      password,
+      udp: true
+    };
+    if (!p.server || !p.port || !p.cipher || !p.password) return null;
+    return p;
+  }
+
+  return null;
+}
+
+function stringifyYamlScalar(v) {
+  if (v === null || v === undefined) return 'null';
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  const s = String(v);
+  if (/^[a-zA-Z0-9_.:@\/-]+$/.test(s)) return s;
+  return JSON.stringify(s);
+}
+
+function toYaml(v, indent = 0) {
+  const sp = ' '.repeat(indent);
+  if (Array.isArray(v)) {
+    if (!v.length) return '[]';
+    return v.map(item => {
+      if (item && typeof item === 'object') {
+        return `${sp}-\n${toYaml(item, indent + 2)}`;
+      }
+      return `${sp}- ${stringifyYamlScalar(item)}`;
+    }).join('\n');
+  }
+  if (v && typeof v === 'object') {
+    const lines = [];
+    for (const [k, val] of Object.entries(v)) {
+      if (val === undefined) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val) && val.length === 0) {
+          lines.push(`${sp}${k}: []`);
+        } else {
+          lines.push(`${sp}${k}:`);
+          lines.push(toYaml(val, indent + 2));
+        }
+      } else {
+        lines.push(`${sp}${k}: ${stringifyYamlScalar(val)}`);
+      }
+    }
+    return lines.join('\n');
+  }
+  return `${sp}${stringifyYamlScalar(v)}`;
+}
+
+function buildClashConfigByLinks(links = []) {
+  const uniq = uniqNameFactory();
+  const proxies = [];
+  for (const raw of links) {
+    const p = parseLinkToClashProxy(raw, uniq);
+    if (p) proxies.push(p);
+  }
+  const names = proxies.map(x => x.name);
+  const hasNodes = names.length > 0;
+  const nodePool = hasNodes ? names : ['DIRECT'];
+
+  const pick = (preferred = []) => {
+    const set = new Set();
+    const out = [];
+    for (const n of preferred) {
+      if (nodePool.includes(n) && !set.has(n)) { out.push(n); set.add(n); }
+    }
+    for (const n of nodePool) {
+      if (!set.has(n)) { out.push(n); set.add(n); }
+    }
+    return out;
+  };
+
+  const aiPool = pick(['新加坡', '美国-SJC', '美国-SJCNO', '德国优化', '德国-甲骨文']);
+  const ytPool = pick(['日本-链式', '日本-直连', '新加坡', '美国-SJC']);
+  const tgPool = pick(['新加坡', '美国-SJC', '美国-SJCNO', '德国优化']);
+
+  const cfg = {
+    'mixed-port': 7890,
+    'allow-lan': false,
+    mode: 'rule',
+    'log-level': 'info',
+    ipv6: false,
+    'unified-delay': true,
+    'tcp-concurrent': true,
+    profile: {
+      'store-selected': true,
+      'store-fake-ip': true,
+    },
+    dns: {
+      enable: true,
+      listen: '127.0.0.1:1053',
+      ipv6: false,
+      'respect-rules': true,
+      'enhanced-mode': 'fake-ip',
+      'fake-ip-range': '198.18.0.1/16',
+      'fake-ip-filter': [
+        '*.lan',
+        '*.local',
+        'localhost.ptlogin2.qq.com',
+        '*.msftconnecttest.com',
+        '*.msftncsi.com',
+        'time.*.com',
+        'time.*.gov',
+        'pool.ntp.org',
+        '*.pool.ntp.org',
+        '+.qq.com',
+        '+.wechat.com',
+        '+.weixin.qq.com'
+      ],
+      nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+      'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+      fallback: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+      'fallback-filter': {
+        geoip: true,
+        'geoip-code': 'CN',
+        ipcidr: ['240.0.0.0/4']
+      }
+    },
+    sniffer: {
+      enable: true,
+      sniff: {
+        TLS: { ports: [443, 8443] },
+        HTTP: { ports: [80, '8080-8880'] }
+      },
+      'skip-domain': ['Mijia Cloud', '+.push.apple.com']
+    },
+    proxies,
+    'proxy-groups': [
+      {
+        name: '🚀 节点选择',
+        type: 'select',
+        proxies: ['♻️ 自动选择', '🧭 手动选择', 'DIRECT']
+      },
+      {
+        name: '🧭 手动选择',
+        type: 'select',
+        proxies: nodePool
+      },
+      {
+        name: '♻️ 自动选择',
+        type: 'url-test',
+        proxies: nodePool,
+        url: 'https://cp.cloudflare.com/generate_204',
+        interval: 600,
+        tolerance: 100
+      },
+      {
+        name: '🤖 AI',
+        type: 'select',
+        proxies: [...aiPool, '♻️ 自动选择', '🧭 手动选择']
+      },
+      {
+        name: '📺 YouTube',
+        type: 'select',
+        proxies: [...ytPool, '♻️ 自动选择', '🧭 手动选择']
+      },
+      {
+        name: '✈️ Telegram',
+        type: 'select',
+        proxies: [...tgPool, '♻️ 自动选择', '🧭 手动选择']
+      }
+    ],
+    'rule-providers': {
+      reject: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt', path: './ruleset/loyalsoldier/reject.txt', interval: 86400 },
+      icloud: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt', path: './ruleset/loyalsoldier/icloud.txt', interval: 86400 },
+      apple: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt', path: './ruleset/loyalsoldier/apple.txt', interval: 86400 },
+      google: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt', path: './ruleset/loyalsoldier/google.txt', interval: 86400 },
+      proxy: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt', path: './ruleset/loyalsoldier/proxy.txt', interval: 86400 },
+      direct: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt', path: './ruleset/loyalsoldier/direct.txt', interval: 86400 },
+      private: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/private.txt', path: './ruleset/loyalsoldier/private.txt', interval: 86400 },
+      gfw: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt', path: './ruleset/loyalsoldier/gfw.txt', interval: 86400 },
+      'tld-not-cn': { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt', path: './ruleset/loyalsoldier/tld-not-cn.txt', interval: 86400 },
+      telegramcidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt', path: './ruleset/loyalsoldier/telegramcidr.txt', interval: 86400 },
+      cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
+      lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 },
+      applications: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/applications.txt', path: './ruleset/loyalsoldier/applications.txt', interval: 86400 }
+    },
+    rules: [
+      'RULE-SET,reject,REJECT',
+      'RULE-SET,icloud,DIRECT',
+      'RULE-SET,apple,DIRECT',
+      'RULE-SET,google,🤖 AI',
+      'RULE-SET,proxy,🚀 节点选择',
+      'RULE-SET,direct,DIRECT',
+      'RULE-SET,private,DIRECT',
+      'RULE-SET,gfw,🚀 节点选择',
+      'RULE-SET,tld-not-cn,🚀 节点选择',
+      'RULE-SET,telegramcidr,✈️ Telegram,no-resolve',
+      'RULE-SET,lancidr,DIRECT,no-resolve',
+      'RULE-SET,cncidr,DIRECT,no-resolve',
+      'RULE-SET,applications,DIRECT',
+      'MATCH,🚀 节点选择'
+    ]
+  };
+
+  return toYaml(cfg) + '\n';
+}
+
 function getSubNodeLinksByToken(token) {
   const sub = db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token);
   if (!sub) return null;
@@ -786,6 +1123,22 @@ app.get('/api/sub/:token/plain', (req, res) => {
   if (links === null) return res.status(404).send('not found');
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.send(links.join('\n'));
+});
+
+app.get('/sub/:token/clash', (req, res) => {
+  const links = getSubNodeLinksByToken(req.params.token);
+  if (links === null) return res.status(404).send('not found');
+  const yaml = buildClashConfigByLinks(links);
+  res.setHeader('content-type', 'text/yaml; charset=utf-8');
+  res.send(yaml);
+});
+
+app.get('/api/sub/:token/clash', (req, res) => {
+  const links = getSubNodeLinksByToken(req.params.token);
+  if (links === null) return res.status(404).send('not found');
+  const yaml = buildClashConfigByLinks(links);
+  res.setHeader('content-type', 'text/yaml; charset=utf-8');
+  res.send(yaml);
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
