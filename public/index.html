@@ -234,10 +234,9 @@ function renderSubsUI(arr){
   for(const s of arr){
     const full=(s.full_url||(`${location.origin}${s.url}`));
     const clashUrl = full.endsWith('/clash') ? full : `${full}/clash`;
-    const importUri=`xray://import?url=${encodeURIComponent(full)}`;
     const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent(s.name||'sui-sub')}`;
     const row=document.createElement('div');row.className='src-item';
-    row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:320px"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><a href="${importUri}"><button data-act="import">一键导入</button></a><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
+    row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:320px"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
     row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri);
     row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri);
