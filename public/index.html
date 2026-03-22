@@ -6,12 +6,12 @@
   <title>sub订阅分发平台</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <style>
-    :root{--bg:#0b1020;--bg2:#0f1730;--card:#121933;--line:#263258;--line2:#36446f;--txt:#eef2ff;--muted:rgba(238,242,255,.72);--ok:#7ef8a5;--err:#ff8f8f}
+    :root{--bg:#0b1020;--bg2:#0f1730;--card:#121933;--line:#263258;--line2:#36446f;--txt:#eef2ff;--muted:rgba(238,242,255,.72);--ok:#7ef8a5;--err:#ff8f8f;--card-grad1:#121933;--card-grad2:#0f1730;--src-bg:#0d1530;--src-line:#2b3963;--modal-grad1:#161f43;--modal-grad2:#101834}
     *{box-sizing:border-box}
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;margin:0;background:var(--bg);color:var(--txt);line-height:1.45}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;margin:0;background:var(--bg);color:var(--txt);line-height:1.45;transition:background .2s,color .2s}
     body.auth-mode{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:18px}
     .wrap{max-width:1160px;margin:20px auto;padding:0 14px}
-    .card{background:linear-gradient(180deg,#121933,#0f1730);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+    .card{background:linear-gradient(180deg,var(--card-grad1),var(--card-grad2));border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
     input,button,select{border-radius:10px;border:1px solid var(--line2);background:var(--bg2);color:var(--txt);padding:10px}
     input{width:100%;min-width:0;outline:none}
     button{cursor:pointer;white-space:nowrap;transition:.2s transform,.2s border-color,.2s background}
@@ -26,16 +26,18 @@
     .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6}
     .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:#1d2850;font-size:12px}
     .sel-list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
-    .src-item{padding:12px;border:1px solid #2b3963;border-radius:12px;background:#0d1530;margin:8px 0}
+    .src-item{padding:12px;border:1px solid var(--src-line);border-radius:12px;background:var(--src-bg);margin:8px 0}
     .src-item .row{row-gap:10px}
     #subs input[readonly]{max-width:320px;min-width:240px}
     #nodes,#suiNodes{overflow-x:auto}
     .modal-mask{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
     .modal-mask.hide{display:none!important}
-    .modal-box{width:min(760px,96vw);max-height:88vh;overflow:auto;background:linear-gradient(180deg,#161f43,#101834);border:1px solid #445189;border-radius:14px;padding:14px}
+    .modal-box{width:min(760px,96vw);max-height:88vh;overflow:auto;background:linear-gradient(180deg,var(--modal-grad1),var(--modal-grad2));border:1px solid #445189;border-radius:14px;padding:14px}
     #linkModal .modal-box{width:min(430px,95vw)}
     #linkQr{width:220px;height:220px;border-radius:10px;border:1px solid #2b3963;background:#fff;padding:8px;display:block;margin:8px auto}
     #loginCard{width:min(460px,94vw);padding:20px}
+
+    body.theme-light{--bg:#f2f6ff;--bg2:#ffffff;--card:#ffffff;--line:#d8e2ff;--line2:#c5d4ff;--txt:#1b2440;--muted:rgba(27,36,64,.68);--ok:#16a34a;--err:#dc2626;--card-grad1:#ffffff;--card-grad2:#f7faff;--src-bg:#f8fbff;--src-line:#d5e1ff;--modal-grad1:#ffffff;--modal-grad2:#f7faff}
 
     @media (max-width:860px){
       .grid{grid-template-columns:1fr}
@@ -157,6 +159,7 @@ const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
 let currentModalLink='';
 let currentModalClashImportUri='';
+let theme='dark';
 const selectedNodeIds=new Set();
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
@@ -316,6 +319,7 @@ async function init(){
   },60000)
 }
 q('#lp')?.addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+try{ applyTheme(localStorage.getItem('sui_sub_theme')||'dark'); }catch(_e){ applyTheme('dark'); }
 checkAuth();
 </script>
 </body>
