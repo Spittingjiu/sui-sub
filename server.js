@@ -955,21 +955,7 @@ function buildClashConfigByLinks(links = []) {
   const hasNodes = names.length > 0;
   const nodePool = hasNodes ? names : ['DIRECT'];
 
-  const pick = (preferred = []) => {
-    const set = new Set();
-    const out = [];
-    for (const n of preferred) {
-      if (nodePool.includes(n) && !set.has(n)) { out.push(n); set.add(n); }
-    }
-    for (const n of nodePool) {
-      if (!set.has(n)) { out.push(n); set.add(n); }
-    }
-    return out;
-  };
-
-  const aiPool = pick(['新加坡', '美国-SJC', '美国-SJCNO', '德国优化', '德国-甲骨文']);
-  const ytPool = pick(['日本-链式', '日本-直连', '新加坡', '美国-SJC']);
-  const tgPool = pick(['新加坡', '美国-SJC', '美国-SJCNO', '德国优化']);
+  const dedicatedPool = [...nodePool, '♻️ 自动选择', '🧭 手动选择'];
 
   const cfg = {
     'mixed-port': 7890,
@@ -1019,7 +1005,16 @@ function buildClashConfigByLinks(links = []) {
         TLS: { ports: [443, 8443] },
         HTTP: { ports: [80, '8080-8880'] }
       },
-      'skip-domain': ['Mijia Cloud', '+.push.apple.com']
+      'skip-domain': [
+        'Mijia Cloud',
+        '+.push.apple.com',
+        'connectivitycheck.gstatic.com',
+        'connect.rom.miui.com',
+        'time.android.com',
+        '+.msftconnecttest.com',
+        '+.msftncsi.com',
+        '+.googlecast.com'
+      ]
     },
     proxies,
     'proxy-groups': [
@@ -1044,17 +1039,17 @@ function buildClashConfigByLinks(links = []) {
       {
         name: '🤖 AI',
         type: 'select',
-        proxies: [...aiPool, '♻️ 自动选择', '🧭 手动选择']
+        proxies: dedicatedPool
       },
       {
         name: '📺 YouTube',
         type: 'select',
-        proxies: [...ytPool, '♻️ 自动选择', '🧭 手动选择']
+        proxies: dedicatedPool
       },
       {
         name: '✈️ Telegram',
         type: 'select',
-        proxies: [...tgPool, '♻️ 自动选择', '🧭 手动选择']
+        proxies: dedicatedPool
       }
     ],
     'rule-providers': {
@@ -1081,11 +1076,14 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,direct,DIRECT',
       'RULE-SET,private,DIRECT',
       'RULE-SET,gfw,🚀 节点选择',
-      'RULE-SET,tld-not-cn,🚀 节点选择',
       'RULE-SET,telegramcidr,✈️ Telegram,no-resolve',
       'RULE-SET,lancidr,DIRECT,no-resolve',
       'RULE-SET,cncidr,DIRECT,no-resolve',
       'RULE-SET,applications,DIRECT',
+      'GEOSITE,cn,DIRECT',
+      'GEOIP,CN,DIRECT,no-resolve',
+      'GEOSITE,geolocation-!cn,🚀 节点选择',
+      'RULE-SET,tld-not-cn,🚀 节点选择',
       'MATCH,🚀 节点选择'
     ]
   };
