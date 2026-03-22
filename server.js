@@ -1061,7 +1061,6 @@ function buildClashConfigByLinks(links = []) {
       direct: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt', path: './ruleset/loyalsoldier/direct.txt', interval: 86400 },
       private: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/private.txt', path: './ruleset/loyalsoldier/private.txt', interval: 86400 },
       gfw: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt', path: './ruleset/loyalsoldier/gfw.txt', interval: 86400 },
-      telegramcidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt', path: './ruleset/loyalsoldier/telegramcidr.txt', interval: 86400 },
       cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 },
       applications: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/applications.txt', path: './ruleset/loyalsoldier/applications.txt', interval: 86400 }
@@ -1081,11 +1080,6 @@ function buildClashConfigByLinks(links = []) {
       'GEOIP,CN,DIRECT,no-resolve',
       'RULE-SET,cncidr,DIRECT,no-resolve',
 
-      'RULE-SET,google,🤖 AI',
-      'DOMAIN-SUFFIX,youtube.com,📺 YouTube',
-      'DOMAIN-SUFFIX,googlevideo.com,📺 YouTube',
-      'DOMAIN-SUFFIX,youtu.be,📺 YouTube',
-      'RULE-SET,telegramcidr,✈️ Telegram,no-resolve',
 
       'RULE-SET,gfw,🚀 节点选择',
       'RULE-SET,proxy,🚀 节点选择',
