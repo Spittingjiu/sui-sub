@@ -147,6 +147,7 @@
       <input id="linkText" readonly />
       <div class="row" style="margin-top:10px;justify-content:flex-end">
         <button onclick="copyFromModal()">复制链接</button>
+        <button onclick="openClashImportFromModal()">Clash导入</button>
       </div>
     </div>
   </div>
@@ -155,6 +156,7 @@
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
 let currentModalLink='';
+let currentModalClashImportUri='';
 const selectedNodeIds=new Set();
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
@@ -210,8 +212,9 @@ function renderNodes(){
 }
 async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});await loadNodes();}
 
-function openLinkModal(link){
+function openLinkModal(link, clashImportUri=''){
   currentModalLink=String(link||'');
+  currentModalClashImportUri=String(clashImportUri||'');
   const textEl=q('#linkText');
   const qrEl=q('#linkQr');
   if(textEl) textEl.value=currentModalLink;
@@ -219,10 +222,9 @@ function openLinkModal(link){
   q('#linkModal')?.classList.remove('hide');
 }
 function closeLinkModal(){ q('#linkModal')?.classList.add('hide'); }
-async function copyFromModal(){
-  if(!currentModalLink) return;
-  await navigator.clipboard.writeText(currentModalLink);
-  toast('链接已复制','ok');
+function openClashImportFromModal(){
+  if(!currentModalClashImportUri){ toast('当前链接不支持 Clash 导入','err'); return; }
+  location.href=currentModalClashImportUri;
 }
 
 function renderSubsUI(arr){
@@ -235,10 +237,10 @@ function renderSubsUI(arr){
     const importUri=`xray://import?url=${encodeURIComponent(full)}`;
     const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent(s.name||'sui-sub')}`;
     const row=document.createElement('div');row.className='src-item';
-    row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:320px"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><a href="${importUri}"><button data-act="import">一键导入</button></a><a href="${clashImportUri}"><button data-act="import-clash">Clash导入</button></a><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
+    row.innerHTML=`<div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div></div><div class="row"><input readonly value="${full}" style="max-width:320px"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><a href="${importUri}"><button data-act="import">一键导入</button></a><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
-    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full);
-    row.querySelector('[data-act="copy-clash"]').onclick=()=>navigator.clipboard.writeText(clashUrl);
+    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri);
+    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);
