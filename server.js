@@ -1075,12 +1075,10 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
-      'GEOSITE,google-play,PROXY',
-
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
       'RULE-SET,cncidr,DIRECT,no-resolve',
-
+      'GEOSITE,google-play,PROXY',
 
       'RULE-SET,gfw,PROXY',
       'RULE-SET,proxy,PROXY',
