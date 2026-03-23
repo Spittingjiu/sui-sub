@@ -989,13 +989,17 @@ function buildClashConfigByLinks(links = []) {
         '+.qq.com',
         '+.wechat.com',
         '+.weixin.qq.com',
-        '+.googleapis.com',
-        '+.gvt1.com',
-        '+.ggpht.com',
-        'play.googleapis.com',
-        'android.clients.google.com'
       ],
       nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+      'nameserver-policy': {
+        '+.googleapis.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.gvt1.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.ggpht.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.googleusercontent.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.googlevideo.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        'play.googleapis.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        'android.clients.google.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query']
+      },
       'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
       fallback: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
       'fallback-filter': {
@@ -1085,8 +1089,13 @@ function buildClashConfigByLinks(links = []) {
       'DOMAIN-SUFFIX,googleapis.com,🚀 节点选择',
       'DOMAIN-SUFFIX,gvt1.com,🚀 节点选择',
       'DOMAIN-SUFFIX,ggpht.com,🚀 节点选择',
+      'DOMAIN-SUFFIX,googleusercontent.com,🚀 节点选择',
+      'DOMAIN-SUFFIX,googlevideo.com,🚀 节点选择',
       'DOMAIN,play.googleapis.com,🚀 节点选择',
       'DOMAIN,android.clients.google.com,🚀 节点选择',
+      'DOMAIN,play-fe.googleapis.com,🚀 节点选择',
+      'DOMAIN,mtalk.google.com,🚀 节点选择',
+      'DOMAIN,dl.google.com,🚀 节点选择',
 
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
