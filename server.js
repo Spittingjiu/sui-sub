@@ -997,8 +997,12 @@ function buildClashConfigByLinks(links = []) {
         '+.ggpht.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
         '+.googleusercontent.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
         '+.googlevideo.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.google.cn': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.g.cn': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        '+.clients.google.cn': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
         'play.googleapis.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
-        'android.clients.google.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query']
+        'android.clients.google.com': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+        'android.clients.google.cn': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query']
       },
       'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
       fallback: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
@@ -1096,6 +1100,10 @@ function buildClashConfigByLinks(links = []) {
       'DOMAIN,play-fe.googleapis.com,🚀 节点选择',
       'DOMAIN,mtalk.google.com,🚀 节点选择',
       'DOMAIN,dl.google.com,🚀 节点选择',
+      'DOMAIN-SUFFIX,google.cn,🚀 节点选择',
+      'DOMAIN-SUFFIX,g.cn,🚀 节点选择',
+      'DOMAIN-SUFFIX,clients.google.cn,🚀 节点选择',
+      'DOMAIN,android.clients.google.cn,🚀 节点选择',
 
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
