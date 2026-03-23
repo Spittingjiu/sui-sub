@@ -1068,7 +1068,7 @@ function buildClashConfigByLinks(links = []) {
       {
         name: 'Google Play',
         type: 'select',
-        proxies: ['节点选择', ...nodePool, 'DIRECT']
+        proxies: ['节点选择', ...nodePool]
       }
     ],
     'rule-providers': {
