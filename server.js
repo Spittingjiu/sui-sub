@@ -968,8 +968,8 @@ function buildClashConfigByLinks(links = []) {
   const nodePool = hasNodes ? names : ['DIRECT'];
 
   const usNodes = names.filter(n => /SJCNO|SJC/i.test(n));
-  const ytPool = [...new Set([...usNodes, 'AUTO', 'MANUAL'])].filter(Boolean);
-  const dedicatedPool = [...nodePool, 'AUTO', 'MANUAL'];
+  const ytPool = [...new Set([...usNodes, '自动选择', '手动选择'])].filter(Boolean);
+  const dedicatedPool = [...nodePool, '自动选择', '手动选择'];
 
   const cfg = {
     'mixed-port': 7890,
@@ -1033,17 +1033,17 @@ function buildClashConfigByLinks(links = []) {
     proxies,
     'proxy-groups': [
       {
-        name: 'PROXY',
+        name: '节点选择',
         type: 'select',
-        proxies: ['AUTO', 'MANUAL', 'DIRECT']
+        proxies: ['自动选择', '手动选择', 'DIRECT']
       },
       {
-        name: 'MANUAL',
+        name: '手动选择',
         type: 'select',
         proxies: nodePool
       },
       {
-        name: 'AUTO',
+        name: '自动选择',
         type: 'url-test',
         proxies: nodePool,
         url: 'https://cp.cloudflare.com/generate_204',
@@ -1051,17 +1051,17 @@ function buildClashConfigByLinks(links = []) {
         tolerance: 100
       },
       {
-        name: 'AI',
+        name: 'AI分流',
         type: 'select',
         proxies: dedicatedPool
       },
       {
-        name: 'YOUTUBE',
+        name: 'YouTube分流',
         type: 'select',
-        proxies: ytPool.length ? ytPool : ['AUTO', 'MANUAL']
+        proxies: ytPool.length ? ytPool : ['自动选择', '手动选择']
       },
       {
-        name: 'TELEGRAM',
+        name: 'Telegram分流',
         type: 'select',
         proxies: dedicatedPool
       }
@@ -1083,22 +1083,22 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,reject,REJECT',
       'RULE-SET,private,DIRECT',
       'RULE-SET,lancidr,DIRECT,no-resolve',
-      'GEOSITE,youtube,YOUTUBE',
-      'GEOSITE,openai,AI',
-      'GEOSITE,anthropic,AI',
-      'GEOSITE,telegram,TELEGRAM',
-      'GEOSITE,google,PROXY',
-      'DOMAIN-SUFFIX,gvt1.com,PROXY',
-      'DOMAIN-SUFFIX,gvt2.com,PROXY',
+      'GEOSITE,youtube,YouTube分流',
+      'GEOSITE,openai,AI分流',
+      'GEOSITE,anthropic,AI分流',
+      'GEOSITE,telegram,Telegram分流',
+      'GEOSITE,google,节点选择',
+      'DOMAIN-SUFFIX,gvt1.com,节点选择',
+      'DOMAIN-SUFFIX,gvt2.com,节点选择',
       'RULE-SET,icloud,DIRECT',
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
       'RULE-SET,cncidr,DIRECT,no-resolve',
-      'RULE-SET,gfw,PROXY',
-      'RULE-SET,proxy,PROXY',
-      'GEOSITE,geolocation-!cn,PROXY',
-      'MATCH,PROXY'
+      'RULE-SET,gfw,节点选择',
+      'RULE-SET,proxy,节点选择',
+      'GEOSITE,geolocation-!cn,节点选择',
+      'MATCH,节点选择'
     ]
   };
 
