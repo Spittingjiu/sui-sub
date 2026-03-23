@@ -1086,8 +1086,6 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,direct,DIRECT',
 
       // 5. 国内流量直连
-      'GEOSITE,cn,DIRECT',
-      'GEOIP,CN,DIRECT,no-resolve',
       'RULE-SET,cncidr,DIRECT,no-resolve',
 
       // 6. 其他规则
