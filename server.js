@@ -988,7 +988,12 @@ function buildClashConfigByLinks(links = []) {
         '*.pool.ntp.org',
         '+.qq.com',
         '+.wechat.com',
-        '+.weixin.qq.com'
+        '+.weixin.qq.com',
+        '+.googleapis.com',
+        '+.gvt1.com',
+        '+.ggpht.com',
+        'play.googleapis.com',
+        'android.clients.google.com'
       ],
       nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
       'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
@@ -1075,6 +1080,13 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
+
+      'RULE-SET,google,🚀 节点选择',
+      'DOMAIN-SUFFIX,googleapis.com,🚀 节点选择',
+      'DOMAIN-SUFFIX,gvt1.com,🚀 节点选择',
+      'DOMAIN-SUFFIX,ggpht.com,🚀 节点选择',
+      'DOMAIN,play.googleapis.com,🚀 节点选择',
+      'DOMAIN,android.clients.google.com,🚀 节点选择',
 
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
