@@ -767,10 +767,21 @@ function b64decodeUrlSafe(s = '') {
   return b64decodeLoose(t);
 }
 
+
+function normalizeNodeName(name = '') {
+  let n = String(name || '').trim();
+  const map = {
+    '寰峰浗浼樺寲': '德国优化',
+    '鏂板姞鍧': '新加坡'
+  };
+  if (map[n]) n = map[n];
+  return n || 'node';
+}
+
 function uniqNameFactory() {
   const seen = new Map();
   return (name) => {
-    const base = String(name || 'node').trim() || 'node';
+    const base = normalizeNodeName(name || 'node');
     const n = (seen.get(base) || 0) + 1;
     seen.set(base, n);
     return n === 1 ? base : `${base}-${n}`;
@@ -951,10 +962,13 @@ function buildClashConfigByLinks(links = []) {
     const p = parseLinkToClashProxy(raw, uniq);
     if (p) proxies.push(p);
   }
+
   const names = proxies.map(x => x.name);
   const hasNodes = names.length > 0;
   const nodePool = hasNodes ? names : ['DIRECT'];
 
+  const usNodes = names.filter(n => /SJCNO|SJC/i.test(n));
+  const ytPool = [...new Set([...usNodes, 'AUTO', 'MANUAL'])].filter(Boolean);
   const dedicatedPool = [...nodePool, 'AUTO', 'MANUAL'];
 
   const cfg = {
@@ -988,7 +1002,7 @@ function buildClashConfigByLinks(links = []) {
         '*.pool.ntp.org',
         '+.qq.com',
         '+.wechat.com',
-        '+.weixin.qq.com',
+        '+.weixin.qq.com'
       ],
       nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
       'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
@@ -1044,7 +1058,7 @@ function buildClashConfigByLinks(links = []) {
       {
         name: 'YOUTUBE',
         type: 'select',
-        proxies: dedicatedPool
+        proxies: ytPool.length ? ytPool : ['AUTO', 'MANUAL']
       },
       {
         name: 'TELEGRAM',
@@ -1066,40 +1080,31 @@ function buildClashConfigByLinks(links = []) {
       applications: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/applications.txt', path: './ruleset/loyalsoldier/applications.txt', interval: 86400 }
     },
     rules: [
-      // 1. 拦截广告
       'RULE-SET,reject,REJECT',
-
-      // 2. 绕过私有网络和局域网
       'RULE-SET,private,DIRECT',
       'RULE-SET,lancidr,DIRECT,no-resolve',
-
-      // 3. 强制谷歌相关流量走代理（在国内规则前）
-      'GEOSITE,google-play,PROXY',
+      'GEOSITE,youtube,YOUTUBE',
+      'GEOSITE,openai,AI',
+      'GEOSITE,anthropic,AI',
+      'GEOSITE,telegram,TELEGRAM',
       'GEOSITE,google,PROXY',
       'DOMAIN-SUFFIX,gvt1.com,PROXY',
       'DOMAIN-SUFFIX,gvt2.com,PROXY',
-
-      // 4. 基础服务直连
       'RULE-SET,icloud,DIRECT',
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
-
-      // 5. 国内流量直连
       'RULE-SET,cncidr,DIRECT,no-resolve',
-
-      // 6. 其他规则
       'RULE-SET,gfw,PROXY',
       'RULE-SET,proxy,PROXY',
       'GEOSITE,geolocation-!cn,PROXY',
-
-      // 7. 漏网之鱼
       'MATCH,PROXY'
     ]
-};
+  };
 
   return toYaml(cfg) + '\n';
 }
+
 
 function getSubNodeLinksByToken(token) {
   const sub = db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token);
