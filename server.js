@@ -1066,27 +1066,39 @@ function buildClashConfigByLinks(links = []) {
       applications: { type: 'http', behavior: 'classical', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/applications.txt', path: './ruleset/loyalsoldier/applications.txt', interval: 86400 }
     },
     rules: [
+      // 1. 拦截广告
       'RULE-SET,reject,REJECT',
 
+      // 2. 绕过私有网络和局域网
       'RULE-SET,private,DIRECT',
       'RULE-SET,lancidr,DIRECT,no-resolve',
 
+      // 3. 强制谷歌相关流量走代理（在国内规则前）
+      'GEOSITE,google-play,PROXY',
+      'GEOSITE,google,PROXY',
+      'DOMAIN-SUFFIX,gvt1.com,PROXY',
+      'DOMAIN-SUFFIX,gvt2.com,PROXY',
+
+      // 4. 基础服务直连
       'RULE-SET,icloud,DIRECT',
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
+
+      // 5. 国内流量直连
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
       'RULE-SET,cncidr,DIRECT,no-resolve',
-      'GEOSITE,google-play,PROXY',
 
+      // 6. 其他规则
       'RULE-SET,gfw,PROXY',
       'RULE-SET,proxy,PROXY',
-
       'GEOSITE,geolocation-!cn,PROXY',
+
+      // 7. 漏网之鱼
       'MATCH,PROXY'
     ]
-  };
+};
 
   return toYaml(cfg) + '\n';
 }
