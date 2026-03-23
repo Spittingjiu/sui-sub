@@ -955,7 +955,7 @@ function buildClashConfigByLinks(links = []) {
   const hasNodes = names.length > 0;
   const nodePool = hasNodes ? names : ['DIRECT'];
 
-  const dedicatedPool = [...nodePool, '♻️ 自动选择', '🧭 手动选择'];
+  const dedicatedPool = [...nodePool, 'AUTO', 'MANUAL'];
 
   const cfg = {
     'mixed-port': 7890,
@@ -1019,17 +1019,17 @@ function buildClashConfigByLinks(links = []) {
     proxies,
     'proxy-groups': [
       {
-        name: '🚀 节点选择',
+        name: 'PROXY',
         type: 'select',
-        proxies: ['♻️ 自动选择', '🧭 手动选择', 'DIRECT']
+        proxies: ['AUTO', 'MANUAL', 'DIRECT']
       },
       {
-        name: '🧭 手动选择',
+        name: 'MANUAL',
         type: 'select',
         proxies: nodePool
       },
       {
-        name: '♻️ 自动选择',
+        name: 'AUTO',
         type: 'url-test',
         proxies: nodePool,
         url: 'https://cp.cloudflare.com/generate_204',
@@ -1037,17 +1037,17 @@ function buildClashConfigByLinks(links = []) {
         tolerance: 100
       },
       {
-        name: '🤖 AI',
+        name: 'AI',
         type: 'select',
         proxies: dedicatedPool
       },
       {
-        name: '📺 YouTube',
+        name: 'YOUTUBE',
         type: 'select',
         proxies: dedicatedPool
       },
       {
-        name: '✈️ Telegram',
+        name: 'TELEGRAM',
         type: 'select',
         proxies: dedicatedPool
       }
@@ -1075,18 +1075,18 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
-      'GEOSITE,google-play,🚀 节点选择',
+      'GEOSITE,google-play,PROXY',
 
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
       'RULE-SET,cncidr,DIRECT,no-resolve',
 
 
-      'RULE-SET,gfw,🚀 节点选择',
-      'RULE-SET,proxy,🚀 节点选择',
+      'RULE-SET,gfw,PROXY',
+      'RULE-SET,proxy,PROXY',
 
-      'GEOSITE,geolocation-!cn,🚀 节点选择',
-      'MATCH,🚀 节点选择'
+      'GEOSITE,geolocation-!cn,PROXY',
+      'MATCH,PROXY'
     ]
   };
 
