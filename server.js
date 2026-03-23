@@ -1090,6 +1090,7 @@ function buildClashConfigByLinks(links = []) {
       'GEOSITE,google,节点选择',
       'DOMAIN-SUFFIX,gvt1.com,节点选择',
       'DOMAIN-SUFFIX,gvt2.com,节点选择',
+      'GEOSITE,cn,DIRECT',
       'RULE-SET,icloud,DIRECT',
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
