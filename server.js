@@ -1064,6 +1064,11 @@ function buildClashConfigByLinks(links = []) {
         name: 'Telegram分流',
         type: 'select',
         proxies: dedicatedPool
+      },
+      {
+        name: 'Google Play',
+        type: 'select',
+        proxies: ['节点选择', 'DIRECT']
       }
     ],
     'rule-providers': {
@@ -1090,6 +1095,10 @@ function buildClashConfigByLinks(links = []) {
       'GEOSITE,google,节点选择',
       'DOMAIN-SUFFIX,gvt1.com,节点选择',
       'DOMAIN-SUFFIX,gvt2.com,节点选择',
+      'GEOSITE,google-play,Google Play',
+      'DOMAIN-KEYWORD,googleplay,Google Play',
+      'DOMAIN-SUFFIX,googleapis.cn,Google Play',
+      'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google Play',
       'GEOSITE,cn,DIRECT',
       'RULE-SET,icloud,DIRECT',
       'RULE-SET,apple,DIRECT',
