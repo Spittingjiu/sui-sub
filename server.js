@@ -1075,7 +1075,7 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,apple,DIRECT',
       'RULE-SET,applications,DIRECT',
       'RULE-SET,direct,DIRECT',
-
+      'GEOSITE,google-play,🚀 节点选择',
 
       'GEOSITE,cn,DIRECT',
       'GEOIP,CN,DIRECT,no-resolve',
