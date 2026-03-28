@@ -245,6 +245,39 @@ function parseSubscriptionText(text) {
   });
 }
 
+function encodeB64NoPad(str='') {
+  return Buffer.from(String(str), 'utf8').toString('base64').replace(/=+$/,'');
+}
+
+function withLinkName(rawLink, name) {
+  const raw = String(rawLink || '').trim();
+  const nm = String(name || '').trim();
+  if (!raw || !nm) return raw;
+
+  // vmess: 名称在 JSON.ps 中
+  if (raw.startsWith('vmess://')) {
+    try {
+      const b64 = raw.slice('vmess://'.length);
+      const payload = b64decodeLoose(b64);
+      const j = JSON.parse(payload || '{}');
+      j.ps = nm;
+      return 'vmess://' + encodeB64NoPad(JSON.stringify(j));
+    } catch {}
+  }
+
+  // vless/trojan/ss: 优先使用 URL hash
+  try {
+    const u = new URL(raw);
+    u.hash = '#' + encodeURIComponent(nm);
+    return u.toString();
+  } catch {}
+
+  // fallback: 直接替换/追加 #name
+  const i = raw.indexOf('#');
+  if (i >= 0) return raw.slice(0, i) + '#' + encodeURIComponent(nm);
+  return raw + '#' + encodeURIComponent(nm);
+}
+
 
 async function suiRequest(source, apiPath, method = 'GET', body) {
   const base = String(source.panel_url || '').replace(/\/$/, '');
@@ -280,6 +313,29 @@ async function fetchSuiPanelLinks(panelUrl, panelToken) {
     for (const one of j.obj) if (typeof one === 'string' && one.trim()) links.push(one.trim());
   }
   return parseSubscriptionText(links.join('\n'));
+}
+
+
+function migrateLocalNodeDisplayNames() {
+  if (!hasSourceTypeCol) return;
+  const rows = db.prepare(`
+    SELECT n.id, n.node_name, n.raw_link
+    FROM nodes n
+    LEFT JOIN sources s ON s.id=n.source_id
+    WHERE COALESCE(s.source_type,'sui_api')='local'
+  `).all();
+  if (!rows.length) return;
+  const tx = db.transaction((arr) => {
+    for (const r of arr) {
+      const nm = String(r.node_name || '').trim();
+      if (!nm) continue;
+      const normalizedRaw = withLinkName(r.raw_link, nm);
+      const node_hash = crypto.createHash('sha256').update(normalizedRaw).digest('hex');
+      db.prepare('UPDATE nodes SET raw_link=?, node_hash=?, updated_at=? WHERE id=?')
+        .run(normalizedRaw, node_hash, now(), r.id);
+    }
+  });
+  tx(rows);
 }
 
 function upsertNodes(sourceId, nodes) {
@@ -725,14 +781,24 @@ app.post('/api/local-nodes', (req, res) => {
     if (!parsed.length) return res.status(400).json({ ok:false, error:'无效节点链接' });
     const one = parsed[0];
     const node_name = customName || one.node_name || 'local-node';
-    const exists = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_hash=?').get(source.id, one.node_hash);
+    const normalizedRaw = withLinkName(one.raw_link, node_name);
+    const node_hash = crypto.createHash('sha256').update(normalizedRaw).digest('hex');
+
+    // 先按内容hash查重，再按名字+源兜底避免重复
+    let exists = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_hash=?').get(source.id, node_hash);
+    if (!exists && customName) {
+      exists = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_name=?').get(source.id, node_name);
+    }
+
     if (exists) {
-      db.prepare('UPDATE nodes SET node_name=?, raw_link=?, enabled=1, updated_at=? WHERE id=?').run(node_name, one.raw_link, now(), exists.id);
+      db.prepare('UPDATE nodes SET node_name=?, raw_link=?, node_hash=?, enabled=1, updated_at=? WHERE id=?')
+        .run(node_name, normalizedRaw, node_hash, now(), exists.id);
       cacheInvalidate();
       return res.json({ ok:true, id: exists.id, updated: true });
     }
+
     const r = db.prepare('INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at) VALUES(?,?,?,?,1,?,?)')
-      .run(source.id, one.node_hash, node_name, one.raw_link, now(), now());
+      .run(source.id, node_hash, node_name, normalizedRaw, now(), now());
     cacheInvalidate();
     return res.json({ ok:true, id: Number(r.lastInsertRowid), created: true });
   } catch (e) {
@@ -1236,6 +1302,7 @@ app.get('/api/sub/:token/clash', (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 ensureLocalSource();
+migrateLocalNodeDisplayNames();
 
 app.listen(PORT, () => {
   console.log(`sui-sub listening on :${PORT}`);
