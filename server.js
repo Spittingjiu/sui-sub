@@ -105,12 +105,15 @@ CREATE TABLE IF NOT EXISTS admin_settings (
 );
 `);
 
-const sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
-const hasTokenUrlCol = sourceCols.includes('token_url');
-const hasSourceTypeCol = sourceCols.includes('source_type');
+let sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
 if (!sourceCols.includes('panel_token')) db.exec(`ALTER TABLE sources ADD COLUMN panel_token TEXT NOT NULL DEFAULT ''`);
 if (!sourceCols.includes('last_sync_at')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_at TEXT`);
 if (!sourceCols.includes('last_sync_status')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_status TEXT`);
+if (!sourceCols.includes('source_type')) db.exec(`ALTER TABLE sources ADD COLUMN source_type TEXT NOT NULL DEFAULT 'sui_api'`);
+db.prepare(`UPDATE sources SET source_type='sui_api' WHERE source_type IS NULL OR source_type=''`).run();
+sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
+const hasTokenUrlCol = sourceCols.includes('token_url');
+const hasSourceTypeCol = sourceCols.includes('source_type');
 const subCols = db.prepare(`PRAGMA table_info(subscriptions)`).all().map(x => x.name);
 if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD COLUMN node_ids_json TEXT NOT NULL DEFAULT '[]'`);
 
@@ -126,17 +129,31 @@ function setAdminSettings(username,password){
 }
 
 
-function insertSourceRow(name, panel_url, panel_token) {
+function insertSourceRow(name, panel_url, panel_token, source_type = 'sui_api') {
+  const syncStatus = source_type === 'local' ? 'local' : 'pending';
   if (hasTokenUrlCol && hasSourceTypeCol) {
     const ins = db.prepare('INSERT INTO sources(name,panel_url,token_url,source_type,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?,?,?)');
-    return ins.run(name, panel_url, '', 'sui_api', panel_token, null, 'pending', now());
+    return ins.run(name, panel_url, '', source_type, panel_token, null, syncStatus, now());
   }
   if (hasTokenUrlCol) {
     const ins = db.prepare('INSERT INTO sources(name,panel_url,token_url,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?,?)');
-    return ins.run(name, panel_url, '', panel_token, null, 'pending', now());
+    return ins.run(name, panel_url, '', panel_token, null, syncStatus, now());
+  }
+  if (hasSourceTypeCol) {
+    const ins = db.prepare('INSERT INTO sources(name,panel_url,panel_token,source_type,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?,?)');
+    return ins.run(name, panel_url, panel_token, source_type, null, syncStatus, now());
   }
   const ins = db.prepare('INSERT INTO sources(name,panel_url,panel_token,last_sync_at,last_sync_status,created_at) VALUES(?,?,?,?,?,?)');
-  return ins.run(name, panel_url, panel_token, null, 'pending', now());
+  return ins.run(name, panel_url, panel_token, null, syncStatus, now());
+}
+
+function ensureLocalSource() {
+  const row = hasSourceTypeCol
+    ? db.prepare("SELECT * FROM sources WHERE source_type='local' ORDER BY id ASC LIMIT 1").get()
+    : db.prepare("SELECT * FROM sources WHERE panel_url='local://manual' ORDER BY id ASC LIMIT 1").get();
+  if (row) return row;
+  const r = insertSourceRow('本地节点', 'local://manual', '', 'local');
+  return db.prepare('SELECT * FROM sources WHERE id=?').get(Number(r.lastInsertRowid));
 }
 
 app.use(express.json({ limit: '1mb' }));
@@ -313,6 +330,7 @@ function upsertNodes(sourceId, nodes) {
 async function syncSource(id) {
   const source = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
   if (!source) throw new Error('source not found');
+  if (String(source.source_type || 'sui_api') === 'local') return { local: true };
   if (!source.panel_token) throw new Error('panel token empty');
   const nodes = await fetchSuiPanelLinks(source.panel_url, source.panel_token);
   const st = upsertNodes(id, nodes);
@@ -325,7 +343,7 @@ async function autoSyncAll() {
   if (syncing) return;
   syncing = true;
   try {
-    const sources = db.prepare('SELECT id FROM sources ORDER BY id ASC').all();
+    const sources = db.prepare("SELECT id FROM sources WHERE COALESCE(source_type,'sui_api')!='local' ORDER BY id ASC").all();
     for (const s of sources) {
       try {
         await syncSource(s.id);
@@ -418,6 +436,7 @@ app.post('/api/bridge/push-source', async (req, res) => {
 });
 
 app.get('/api/sources', (req, res) => {
+  ensureLocalSource();
   const sources = db.prepare('SELECT * FROM sources ORDER BY id DESC').all();
   res.json({ ok: true, sources });
 });
@@ -459,6 +478,8 @@ app.put('/api/sources/:id', (req, res) => {
 
 app.delete('/api/sources/:id', (req, res) => {
   const id = Number(req.params.id);
+  const src = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
+  if (src && String(src.source_type || 'sui_api') === 'local') return res.status(400).json({ ok:false, error:'本地节点源不可删除' });
   const deletedNodeIds = db.prepare('SELECT id FROM nodes WHERE source_id=?').all(id).map(x=>x.id);
   db.prepare('DELETE FROM nodes WHERE source_id=?').run(id);
   db.prepare('DELETE FROM sources WHERE id=?').run(id);
@@ -507,14 +528,14 @@ app.get('/api/view/nodes', (req, res) => {
   let rows;
   if (sourceId > 0) {
     rows = db.prepare(`
-      SELECT n.*, s.name as source_name
+      SELECT n.*, s.name as source_name, s.source_type as source_type
       FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
       WHERE n.source_id=?
       ORDER BY n.id DESC
     `).all(sourceId);
   } else {
     rows = db.prepare(`
-      SELECT n.*, s.name as source_name
+      SELECT n.*, s.name as source_name, s.source_type as source_type
       FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
       ORDER BY n.id DESC
     `).all();
@@ -525,6 +546,7 @@ app.get('/api/view/nodes', (req, res) => {
 
 
 app.get('/api/view/bootstrap', (req, res) => {
+  ensureLocalSource();
   const key = 'bootstrap';
   const hit = cacheGet(key);
   if (hit) return res.json({ ok: true, ...hit, cached: true });
@@ -573,14 +595,14 @@ app.get('/api/view/modal-nodes', (req, res) => {
   let rows;
   if (sourceId > 0) {
     rows = db.prepare(`
-      SELECT n.*, s.name as source_name
+      SELECT n.*, s.name as source_name, s.source_type as source_type
       FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
       WHERE n.source_id=?
       ORDER BY n.id DESC
     `).all(sourceId);
   } else {
     rows = db.prepare(`
-      SELECT n.*, s.name as source_name
+      SELECT n.*, s.name as source_name, s.source_type as source_type
       FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
       ORDER BY n.id DESC
     `).all();
@@ -691,6 +713,53 @@ app.post('/api/nodes/:id/toggle', (req, res) => {
   db.prepare('UPDATE nodes SET enabled=?, updated_at=? WHERE id=?').run(next, now(), id);
   cacheInvalidate();
   res.json({ ok: true, enabled: next });
+});
+
+app.post('/api/local-nodes', (req, res) => {
+  try {
+    const source = ensureLocalSource();
+    const raw = String(req.body?.raw_link || '').trim();
+    const customName = String(req.body?.node_name || '').trim();
+    if (!raw) return res.status(400).json({ ok:false, error:'raw_link 必填' });
+    const parsed = parseSubscriptionText(raw);
+    if (!parsed.length) return res.status(400).json({ ok:false, error:'无效节点链接' });
+    const one = parsed[0];
+    const node_name = customName || one.node_name || 'local-node';
+    const exists = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_hash=?').get(source.id, one.node_hash);
+    if (exists) {
+      db.prepare('UPDATE nodes SET node_name=?, raw_link=?, enabled=1, updated_at=? WHERE id=?').run(node_name, one.raw_link, now(), exists.id);
+      cacheInvalidate();
+      return res.json({ ok:true, id: exists.id, updated: true });
+    }
+    const r = db.prepare('INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at) VALUES(?,?,?,?,1,?,?)')
+      .run(source.id, one.node_hash, node_name, one.raw_link, now(), now());
+    cacheInvalidate();
+    return res.json({ ok:true, id: Number(r.lastInsertRowid), created: true });
+  } catch (e) {
+    return res.status(500).json({ ok:false, error:e.message });
+  }
+});
+
+app.delete('/api/local-nodes/:id', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const row = db.prepare("SELECT n.id,s.source_type FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.id=?").get(id);
+    if (!row) return res.status(404).json({ ok:false, error:'node not found' });
+    if (String(row.source_type || 'sui_api') !== 'local') return res.status(400).json({ ok:false, error:'仅可删除本地节点' });
+    db.prepare('DELETE FROM nodes WHERE id=?').run(id);
+    const subs = db.prepare('SELECT id,node_ids_json FROM subscriptions').all();
+    for (const s of subs) {
+      const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+      const next = nodeIds.filter(nid => nid !== id);
+      if (next.length !== nodeIds.length) {
+        db.prepare('UPDATE subscriptions SET node_ids_json=? WHERE id=?').run(JSON.stringify(next), s.id);
+      }
+    }
+    cacheInvalidate();
+    return res.json({ ok:true });
+  } catch (e) {
+    return res.status(500).json({ ok:false, error:e.message });
+  }
 });
 
 app.get('/api/subscriptions', (req, res) => {
@@ -1165,6 +1234,8 @@ app.get('/api/sub/:token/clash', (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+ensureLocalSource();
 
 app.listen(PORT, () => {
   console.log(`sui-sub listening on :${PORT}`);

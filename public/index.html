@@ -97,7 +97,10 @@
       <div class="card">
         <h3>节点列表（按源查看）</h3>
         <div class="row" style="margin-top:6px">
-          <select id="nodeSourceSelect" style="min-width:240px" onchange="setNodeSource(this.value)"></select>
+          <select id="nodeSourceSelect" style="min-width:220px" onchange="setNodeSource(this.value)"></select>
+          <input id="localNodeLink" placeholder="粘贴节点链接" style="min-width:320px;max-width:640px;flex:1 1 520px"/>
+          <input id="localNodeName" placeholder="备注(可选)" style="min-width:86px;max-width:120px;flex:0 0 110px"/>
+          <button id="addLocalBtn" onclick="addLocalNode()" style="margin-left:auto">添加本地节点</button>
         </div>
         <div id="nodes" style="margin-top:8px"></div>
       </div>
@@ -165,6 +168,11 @@ const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
 async function api(url,opt={}){const r=await fetch(url,{headers:{'content-type':'application/json'},...opt});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
 function setAuthMode(v){document.body.classList.toggle('auth-mode',v)}
+function applyTheme(next='dark'){
+  theme = (next === 'light') ? 'light' : 'dark';
+  document.body.classList.toggle('theme-light', theme === 'light');
+  try{ localStorage.setItem('sui_sub_theme', theme); }catch(_e){}
+}
 
 function switchTab(tab){
   q('#tab-home').classList.toggle('hide',tab!=='home'); q('#tab-nodes').classList.toggle('hide',tab!=='nodes'); q('#tab-sui').classList.toggle('hide',tab!=='sui'); q('#tab-user').classList.toggle('hide',tab!=='user');
@@ -197,23 +205,57 @@ function renderSourcesUI(){
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
 
 async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();}
+function getLocalSourceId(){
+  const src=sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
+  return src?String(src.id):'';
+}
+function setLocalAddVisible(){
+  const localId=getLocalSourceId();
+  const onLocal = localId && String(sourceViewId)===localId;
+  ['#localNodeLink','#localNodeName','#addLocalBtn'].forEach(sel=>{const el=q(sel); if(el) el.style.display=onLocal?'':'none';});
+}
 function renderNodeSourceSelect(){
   const sel=q('#nodeSourceSelect'); if(!sel) return;
   const total = sources.reduce((a,s)=>a+Number(s.node_count||0),0);
   const options=[`<option value=\"all\">全部源（${total}）</option>`].concat(
-    sources.map(s=>`<option value=\"${s.id}\">${s.name}（${Number(s.node_count||0)}）</option>`)
+    sources.map(s=>`<option value=\"${s.id}\">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}（${Number(s.node_count||0)}）</option>`)
   );
   sel.innerHTML=options.join('');
   const has=[...sel.options].some(o=>o.value===String(sourceViewId));
   sel.value=has?String(sourceViewId):'all';
+  setLocalAddVisible();
 }
-function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();loadNodes();}
+function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();setLocalAddVisible();loadNodes();}
 function renderNodes(){
   const rows=allNodes, box=q('#nodes');
-  if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>`<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td><button onclick="toggleNode(${n.id})">切换</button></td></tr>`).join('')}</tbody></table>`;
+  if(!rows.length){box.innerHTML='<div class=\"muted\">该源暂无节点</div>';return;}
+  box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
+    const isLocal=String(n.source_type||'sui_api')==='local';
+    const op=isLocal
+      ? `<button onclick=\"toggleNode(${n.id})\">切换</button> <button onclick=\"deleteLocalNode(${n.id})\">删除</button>`
+      : `<button onclick=\"toggleNode(${n.id})\">切换</button>`;
+    return `<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${n.enabled?'<span class=\"ok\">启用</span>':'<span class=\"err\">禁用</span>'}</td><td>${op}</td></tr>`;
+  }).join('')}</tbody></table>`;
 }
 async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});await loadNodes();}
+async function addLocalNode(){
+  const raw=(q('#localNodeLink')?.value||'').trim();
+  const node_name=(q('#localNodeName')?.value||'').trim();
+  if(!raw) return toast('请先粘贴节点链接','err');
+  await api('/api/local-nodes',{method:'POST',body:JSON.stringify({raw_link:raw,node_name})});
+  if(q('#localNodeLink')) q('#localNodeLink').value='';
+  if(q('#localNodeName')) q('#localNodeName').value='';
+  toast('已添加到本地节点','ok');
+  await refreshAll();
+  await loadNodes();
+}
+async function deleteLocalNode(id){
+  if(!confirm('确认删除该本地节点？')) return;
+  await api('/api/local-nodes/'+id,{method:'DELETE'});
+  toast('本地节点已删除','ok');
+  await refreshAll();
+  await loadNodes();
+}
 
 function openLinkModal(link, clashImportUri=''){
   currentModalLink=String(link||'');
@@ -253,8 +295,11 @@ async function deleteSub(id){if(!confirm('确认删除此订阅？'))return;awai
 
 function renderModalSourceFilter(){
   const sel=q('#modalSourceFilter'); if(!sel) return;
-  const old=sel.value||'all'; sel.innerHTML='<option value="all">全部源</option>'+sources.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
-  sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
+  const old=sel.value||'all';
+  sel.innerHTML='<option value="all">全部源</option>'+sources.map(s=>`<option value="${s.id}">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}</option>`).join('');
+  const localSrc=sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
+  if(localSrc) sel.value=String(localSrc.id);
+  else sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
   sel.onchange=async()=>{
     const sid=sel.value||'all';
     const j=await api('/api/view/modal-nodes'+(sid!=='all'?`?sourceId=${sid}`:''));
@@ -302,6 +347,7 @@ function applyBootstrap(b){
   allNodes = sid ? nodes.filter(n=>Number(n.source_id)===sid) : nodes;
   renderSourcesUI();
   renderNodeSourceSelect();
+  setLocalAddVisible();
   renderNodes();
   renderSubsUI(b.subscriptions||[]);
 }
