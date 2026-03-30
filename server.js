@@ -1148,7 +1148,7 @@ function buildClashConfigByLinks(links = []) {
   const hasNodes = names.length > 0;
   const nodePool = hasNodes ? names : ['DIRECT'];
 
-  const usNodes = names.filter(n => /SJCNO|SJC/i.test(n));
+  const usNodes = names.filter(n => /(SJCNO|SJC|美国|US|USA|United\s*States|洛杉矶|圣何塞|纽约)/i.test(n));
   const ytPool = [...new Set([...usNodes, '自动选择', '手动选择'])].filter(Boolean);
   const dedicatedPool = [...nodePool, '自动选择', '手动选择'];
 
