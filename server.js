@@ -1029,8 +1029,9 @@ function parseLinkToClashProxy(raw, uniqueName) {
     if (security === 'reality') {
       const pbk = u.searchParams.get('pbk') || '';
       const sid = u.searchParams.get('sid') || '';
+      const spx = u.searchParams.get('spx') || u.searchParams.get('spiderx') || u.searchParams.get('spiderX') || '/';
       const fp = u.searchParams.get('fp') || 'chrome';
-      if (pbk) p['reality-opts'] = { 'public-key': pbk, 'short-id': sid };
+      if (pbk) p['reality-opts'] = { 'public-key': pbk, 'short-id': sid, 'spider-x': spx };
       p['client-fingerprint'] = fp;
     }
     return p;
@@ -1246,9 +1247,14 @@ function buildClashConfigByLinks(links = []) {
         proxies: dedicatedPool
       },
       {
+        name: 'Google分流',
+        type: 'select',
+        proxies: dedicatedPool
+      },
+      {
         name: 'Google Play',
         type: 'select',
-        proxies: ['节点选择', ...nodePool]
+        proxies: ['Google分流', '节点选择', ...nodePool]
       }
     ],
     'rule-providers': {
@@ -1272,13 +1278,13 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,anthropic,AI分流',
       'RULE-SET,youtube,YouTube分流',
       'RULE-SET,telegram,Telegram分流',
-      'RULE-SET,google,Google Play',
+      'RULE-SET,google,Google分流',
       'GEOSITE,google-play,Google Play',
       'DOMAIN-KEYWORD,googleplay,Google Play',
-      'DOMAIN-SUFFIX,googleapis.cn,Google Play',
-      'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google Play',
-      'DOMAIN-SUFFIX,gvt1.com,Google Play',
-      'DOMAIN-SUFFIX,gvt2.com,Google Play',
+      'DOMAIN-SUFFIX,googleapis.cn,Google分流',
+      'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google分流',
+      'DOMAIN-SUFFIX,gvt1.com,Google分流',
+      'DOMAIN-SUFFIX,gvt2.com,Google分流',
       'RULE-SET,direct,DIRECT',
       'GEOSITE,cn,DIRECT',
       'RULE-SET,cncidr,DIRECT,no-resolve',
