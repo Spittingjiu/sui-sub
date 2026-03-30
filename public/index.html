@@ -280,6 +280,27 @@ function openLinkModal(link, clashImportUri=''){
   q('#linkModal')?.classList.remove('hide');
 }
 function closeLinkModal(){ q('#linkModal')?.classList.add('hide'); }
+async function copyFromModal(){
+  const txt=String(currentModalLink||'').trim();
+  if(!txt) return toast('没有可复制的链接','err');
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(txt);
+    }else{
+      const ta=document.createElement('textarea');
+      ta.value=txt;
+      ta.style.position='fixed';
+      ta.style.left='-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    toast('已复制链接','ok');
+  }catch(e){
+    toast('复制失败，请手动复制','err');
+  }
+}
 function openClashImportFromModal(){
   if(!currentModalClashImportUri){ toast('当前链接不支持 Clash 导入','err'); return; }
   location.href=currentModalClashImportUri;
