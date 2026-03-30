@@ -1186,8 +1186,8 @@ function buildClashConfigByLinks(links = []) {
         '+.weixin.qq.com'
       ],
       nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-      'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
-      fallback: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
+      'proxy-server-nameserver': ['https://1.1.1.1/dns-query'],
+      fallback: ['https://1.1.1.1/dns-query'],
       'fallback-filter': {
         geoip: true,
         'geoip-code': 'CN',
@@ -1247,14 +1247,9 @@ function buildClashConfigByLinks(links = []) {
         proxies: dedicatedPool
       },
       {
-        name: 'Google分流',
+        name: 'Google',
         type: 'select',
         proxies: dedicatedPool
-      },
-      {
-        name: 'Google Play',
-        type: 'select',
-        proxies: ['Google分流', '节点选择', ...nodePool]
       }
     ],
     'rule-providers': {
@@ -1278,13 +1273,13 @@ function buildClashConfigByLinks(links = []) {
       'RULE-SET,anthropic,AI分流',
       'RULE-SET,youtube,YouTube分流',
       'RULE-SET,telegram,Telegram分流',
-      'RULE-SET,google,Google分流',
-      'GEOSITE,google-play,Google Play',
-      'DOMAIN-KEYWORD,googleplay,Google Play',
-      'DOMAIN-SUFFIX,googleapis.cn,Google分流',
-      'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google分流',
-      'DOMAIN-SUFFIX,gvt1.com,Google分流',
-      'DOMAIN-SUFFIX,gvt2.com,Google分流',
+      'RULE-SET,google,Google',
+      'GEOSITE,google-play,Google',
+      'DOMAIN-KEYWORD,googleplay,Google',
+      'DOMAIN-SUFFIX,googleapis.cn,Google',
+      'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google',
+      'DOMAIN-SUFFIX,gvt1.com,Google',
+      'DOMAIN-SUFFIX,gvt2.com,Google',
       'RULE-SET,direct,DIRECT',
       'GEOSITE,cn,DIRECT',
       'RULE-SET,cncidr,DIRECT,no-resolve',
