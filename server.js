@@ -1230,9 +1230,10 @@ async function buildClashConfigByLinks(links = []) {
         '+.wechat.com',
         '+.weixin.qq.com'
       ],
+      'default-nameserver': ['223.5.5.5', '119.29.29.29', '1.1.1.1'],
       nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-      'proxy-server-nameserver': ['https://1.1.1.1/dns-query'],
-      fallback: ['https://1.1.1.1/dns-query'],
+      'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
+      fallback: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'fallback-filter': {
         geoip: true,
         'geoip-code': 'CN',
