@@ -1230,10 +1230,19 @@ async function buildClashConfigByLinks(links = []) {
         '+.wechat.com',
         '+.weixin.qq.com'
       ],
-      'default-nameserver': ['223.5.5.5', '119.29.29.29', '1.1.1.1'],
-      nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-      'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
-      fallback: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
+      'default-nameserver': ['1.1.1.1', '8.8.8.8', '9.9.9.9'],
+      'nameserver-policy': {
+        'geosite:cn': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+        'geosite:geolocation-!cn': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
+      },
+      nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
+      'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
+      'proxy-server-nameserver-policy': {
+        '+.*': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
+      },
+      'direct-nameserver': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+      'direct-nameserver-follow-policy': true,
+      fallback: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
       'fallback-filter': {
         geoip: true,
         'geoip-code': 'CN',
@@ -1326,11 +1335,11 @@ async function buildClashConfigByLinks(links = []) {
       'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google',
       'DOMAIN-SUFFIX,gvt1.com,Google',
       'DOMAIN-SUFFIX,gvt2.com,Google',
+      'RULE-SET,proxy,节点选择',
+      'GEOSITE,geolocation-!cn,节点选择',
       'RULE-SET,direct,DIRECT',
       'GEOSITE,cn,DIRECT',
       'RULE-SET,cncidr,DIRECT,no-resolve',
-      'RULE-SET,proxy,节点选择',
-      'GEOSITE,geolocation-!cn,节点选择',
       'MATCH,节点选择'
     ]
   };
