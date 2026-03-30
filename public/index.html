@@ -232,8 +232,8 @@ function renderNodes(){
   box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
     const isLocal=String(n.source_type||'sui_api')==='local';
     const op=isLocal
-      ? `<button onclick=\"toggleNode(${n.id})\">切换</button> <button onclick=\"deleteLocalNode(${n.id})\">删除</button>`
-      : `<button onclick=\"toggleNode(${n.id})\">切换</button>`;
+      ? `<button onclick=\"toggleNode(${n.id})\">切换</button> <button onclick=\"renameNode(${n.id})\">改名</button> <button onclick=\"deleteLocalNode(${n.id})\">删除</button>`
+      : `<button onclick=\"toggleNode(${n.id})\">切换</button> <button onclick=\"renameNode(${n.id})\">改名</button>`;
     return `<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${n.enabled?'<span class=\"ok\">启用</span>':'<span class=\"err\">禁用</span>'}</td><td>${op}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
@@ -249,6 +249,19 @@ async function addLocalNode(){
   await refreshAll();
   await loadNodes();
 }
+async function renameNode(id){
+  const n=(allNodes||[]).find(x=>Number(x.id)===Number(id));
+  const old=(n?.node_name||'').trim();
+  const node_name=prompt('输入新节点名：', old);
+  if(node_name===null) return;
+  const name=String(node_name||'').trim();
+  if(!name) return toast('节点名不能为空','err');
+  await api('/api/nodes/'+id+'/rename',{method:'PUT',body:JSON.stringify({node_name:name})});
+  toast('节点名已同步更新','ok');
+  await refreshAll();
+  await loadNodes();
+}
+
 async function deleteLocalNode(id){
   if(!confirm('确认删除该本地节点？')) return;
   await api('/api/local-nodes/'+id,{method:'DELETE'});
@@ -297,9 +310,7 @@ function renderModalSourceFilter(){
   const sel=q('#modalSourceFilter'); if(!sel) return;
   const old=sel.value||'all';
   sel.innerHTML='<option value="all">全部源</option>'+sources.map(s=>`<option value="${s.id}">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}</option>`).join('');
-  const localSrc=sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
-  if(localSrc) sel.value=String(localSrc.id);
-  else sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
+  sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
   sel.onchange=async()=>{
     const sid=sel.value||'all';
     const j=await api('/api/view/modal-nodes'+(sid!=='all'?`?sourceId=${sid}`:''));

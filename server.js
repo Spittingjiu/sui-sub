@@ -315,6 +315,23 @@ async function fetchSuiPanelLinks(panelUrl, panelToken) {
   return parseSubscriptionText(links.join('\n'));
 }
 
+async function findSuiInboundIdByNodeHash(source, nodeHash) {
+  const j = await suiRequest(source, '/api/inbounds');
+  if (!j?.success || !Array.isArray(j?.obj)) return null;
+  for (const ib of j.obj) {
+    if (!ib?.id) continue;
+    const lj = await suiRequest(source, `/api/inbounds/${ib.id}/links`);
+    if (!lj?.success || !Array.isArray(lj?.obj)) continue;
+    for (const one of lj.obj) {
+      if (typeof one !== 'string' || !one.trim()) continue;
+      const parsed = parseSubscriptionText(one.trim());
+      if (!parsed.length) continue;
+      if (parsed[0].node_hash === nodeHash) return Number(ib.id);
+    }
+  }
+  return null;
+}
+
 
 function migrateLocalNodeDisplayNames() {
   if (!hasSourceTypeCol) return;
@@ -801,6 +818,37 @@ app.post('/api/local-nodes', (req, res) => {
       .run(source.id, node_hash, node_name, normalizedRaw, now(), now());
     cacheInvalidate();
     return res.json({ ok:true, id: Number(r.lastInsertRowid), created: true });
+  } catch (e) {
+    return res.status(500).json({ ok:false, error:e.message });
+  }
+});
+
+app.put('/api/nodes/:id/rename', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const node = db.prepare('SELECT n.*, s.source_type, s.id as source_id, s.panel_url, s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.id=?').get(id);
+    if (!node) return res.status(404).json({ ok:false, error:'node not found' });
+    const node_name = String(req.body?.node_name || '').trim();
+    if (!node_name) return res.status(400).json({ ok:false, error:'node_name 必填' });
+
+    const normalizedRaw = withLinkName(node.raw_link, node_name);
+    const node_hash = crypto.createHash('sha256').update(normalizedRaw).digest('hex');
+
+    if (String(node.source_type || 'sui_api') === 'local') {
+      db.prepare('UPDATE nodes SET node_name=?, raw_link=?, node_hash=?, updated_at=? WHERE id=?').run(node_name, normalizedRaw, node_hash, now(), id);
+      cacheInvalidate();
+      return res.json({ ok:true, synced:'local-only' });
+    }
+
+    const source = db.prepare('SELECT * FROM sources WHERE id=?').get(node.source_id);
+    if (!source) return res.status(404).json({ ok:false, error:'source not found' });
+    const inboundId = await findSuiInboundIdByNodeHash(source, node.node_hash);
+    if (!inboundId) return res.status(404).json({ ok:false, error:'sui inbound not found by hash' });
+
+    await suiRequest(source, `/api/inbounds/${inboundId}`, 'PUT', { remark: node_name });
+    await syncSource(source.id);
+    cacheInvalidate();
+    return res.json({ ok:true, synced:'sui+local', inbound_id: inboundId });
   } catch (e) {
     return res.status(500).json({ ok:false, error:e.message });
   }
