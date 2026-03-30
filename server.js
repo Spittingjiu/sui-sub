@@ -831,13 +831,10 @@ app.put('/api/nodes/:id/rename', async (req, res) => {
     const node_name = String(req.body?.node_name || '').trim();
     if (!node_name) return res.status(400).json({ ok:false, error:'node_name 必填' });
 
-    const normalizedRaw = withLinkName(node.raw_link, node_name);
-    const node_hash = crypto.createHash('sha256').update(normalizedRaw).digest('hex');
-
     if (String(node.source_type || 'sui_api') === 'local') {
-      db.prepare('UPDATE nodes SET node_name=?, raw_link=?, node_hash=?, updated_at=? WHERE id=?').run(node_name, normalizedRaw, node_hash, now(), id);
+      db.prepare('UPDATE nodes SET node_name=?, updated_at=? WHERE id=?').run(node_name, now(), id);
       cacheInvalidate();
-      return res.json({ ok:true, synced:'local-only' });
+      return res.json({ ok:true, synced:'local-only-name' });
     }
 
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(node.source_id);
