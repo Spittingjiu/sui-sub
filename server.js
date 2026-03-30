@@ -19,6 +19,10 @@ const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 
 
+const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
+const GEOIP_CACHE = new Map();
+const GEOIP_TTL_MS = 6 * 60 * 60 * 1000;
+
 
 function ensureE2EEKeys(){
   try {
@@ -958,6 +962,47 @@ function normalizeNodeName(name = '') {
   return n || 'node';
 }
 
+
+async function getCountryByIp(ip) {
+  const v4 = String(ip || '').trim();
+  if (!v4 || /[^0-9.]/.test(v4)) return null;
+  const nowTs = Date.now();
+  const hit = GEOIP_CACHE.get(v4);
+  if (hit && hit.exp > nowTs) return hit.country;
+  let country = null;
+  try {
+    if (IPINFO_TOKEN) {
+      const r = await fetch(`https://ipinfo.io/${v4}/json?token=${IPINFO_TOKEN}`, { timeout: 5000 });
+      if (r.ok) {
+        const j = await r.json();
+        country = String(j.country || '').toUpperCase() || null;
+      }
+    }
+  } catch {}
+  try {
+    if (!country) {
+      const r = await fetch(`http://ip-api.com/json/${v4}?fields=countryCode,status`, { timeout: 5000 });
+      if (r.ok) {
+        const j = await r.json();
+        const t = String(j.countryCode || '').trim().toUpperCase();
+        if (/^[A-Z]{2}$/.test(t)) country = t;
+      }
+    }
+  } catch {}
+  GEOIP_CACHE.set(v4, { country, exp: nowTs + GEOIP_TTL_MS });
+  return country;
+}
+
+async function pickUsNodesByIp(proxies = []) {
+  const out = [];
+  for (const p of proxies) {
+    const ip = String(p.server || '');
+    const c = await getCountryByIp(ip);
+    if (c === 'US') out.push(p.name);
+  }
+  return out;
+}
+
 function uniqNameFactory() {
   const seen = new Map();
   return (name) => {
@@ -1136,7 +1181,7 @@ function toYaml(v, indent = 0) {
   return `${sp}${stringifyYamlScalar(v)}`;
 }
 
-function buildClashConfigByLinks(links = []) {
+async function buildClashConfigByLinks(links = []) {
   const uniq = uniqNameFactory();
   const proxies = [];
   for (const raw of links) {
@@ -1148,7 +1193,7 @@ function buildClashConfigByLinks(links = []) {
   const hasNodes = names.length > 0;
   const nodePool = hasNodes ? names : ['DIRECT'];
 
-  const usNodes = names.filter(n => /(SJCNO|SJC|美国|US|USA|United\s*States|洛杉矶|圣何塞|纽约)/i.test(n));
+  const usNodes = await pickUsNodesByIp(proxies);
   const ytPool = [...new Set([...usNodes, '自动选择', '手动选择'])].filter(Boolean);
   const dedicatedPool = [...nodePool, '自动选择', '手动选择'];
 
@@ -1325,18 +1370,18 @@ app.get('/api/sub/:token/plain', (req, res) => {
   res.send(links.join('\n'));
 });
 
-app.get('/sub/:token/clash', (req, res) => {
+app.get('/sub/:token/clash', async (req, res) => {
   const links = getSubNodeLinksByToken(req.params.token);
   if (links === null) return res.status(404).send('not found');
-  const yaml = buildClashConfigByLinks(links);
+  const yaml = await buildClashConfigByLinks(links);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
 
-app.get('/api/sub/:token/clash', (req, res) => {
+app.get('/api/sub/:token/clash', async (req, res) => {
   const links = getSubNodeLinksByToken(req.params.token);
   if (links === null) return res.status(404).send('not found');
-  const yaml = buildClashConfigByLinks(links);
+  const yaml = await buildClashConfigByLinks(links);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
