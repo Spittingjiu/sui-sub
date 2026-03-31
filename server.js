@@ -1236,9 +1236,11 @@ async function buildClashConfigByLinks(links = []) {
         'geosite:geolocation-!cn': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
       },
       nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
-      'proxy-server-nameserver': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
+      'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver-policy': {
-        '+.*': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
+        'geosite:cn': ['223.5.5.5', '119.29.29.29'],
+        '+.zzao.de': ['223.5.5.5', '119.29.29.29'],
+        '+.fengqi0216.top': ['223.5.5.5', '119.29.29.29']
       },
       'direct-nameserver': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
       'direct-nameserver-follow-policy': true,
