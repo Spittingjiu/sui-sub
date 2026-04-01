@@ -1203,17 +1203,23 @@ function deepMerge(base, override) {
 
 let clashTemplateCache = { at: 0, data: null };
 
-async function loadRemoteClashTemplate() {
-  try {
-    const nowTs = Date.now();
-    if (clashTemplateCache.data && (nowTs - clashTemplateCache.at) < CLASH_TEMPLATE_CACHE_MS) {
-      return clashTemplateCache.data;
-    }
+async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
+  const nowTs = Date.now();
+  const canUseCache = clashTemplateCache.data && (nowTs - clashTemplateCache.at) < CLASH_TEMPLATE_CACHE_MS;
 
+  if (!forceRefresh && canUseCache) return clashTemplateCache.data;
+
+  try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
-    const resp = await fetch(CLASH_TEMPLATE_URL, {
-      headers: { 'accept': 'application/json,text/plain,*/*' },
+    const url = forceRefresh
+      ? `${CLASH_TEMPLATE_URL}${CLASH_TEMPLATE_URL.includes('?') ? '&' : '?'}_ts=${Date.now()}`
+      : CLASH_TEMPLATE_URL;
+    const resp = await fetch(url, {
+      headers: {
+        'accept': 'application/json,text/plain,*/*',
+        'cache-control': 'no-cache'
+      },
       signal: controller.signal
     });
     clearTimeout(timer);
@@ -1226,7 +1232,8 @@ async function loadRemoteClashTemplate() {
     clashTemplateCache = { at: nowTs, data: obj };
     return obj;
   } catch (e) {
-    console.warn('[clash-template] use built-in fallback:', e?.message || e);
+    console.warn('[clash-template] refresh failed, fallback cache/built-in:', e?.message || e);
+    if (clashTemplateCache.data) return clashTemplateCache.data;
     return null;
   }
 }
@@ -1412,7 +1419,7 @@ async function buildClashConfigByLinks(links = []) {
     ]
   };
 
-  const remoteBase = await loadRemoteClashTemplate();
+  const remoteBase = await loadRemoteClashTemplate({ forceRefresh: true });
   const mergedBase = remoteBase ? deepMerge(builtInBase, remoteBase) : builtInBase;
   const cfg = { ...mergedBase, ...dynamicPart };
 
