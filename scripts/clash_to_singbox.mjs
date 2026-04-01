@@ -57,6 +57,20 @@ function parseRule(str) {
   return { action: 'route', outbound: '节点选择', 'x-openclaw-unparsed': s };
 }
 
+function mapRuleProviderToSingboxSrs(url) {
+  const u = String(url || '');
+  // Clash YAML -> SingBox srs
+  // e.g. /rule/Clash/Advertising/Advertising_Classical.yaml -> /rule/SingBox/Advertising/Advertising.srs
+  if (!u.includes('/rule/Clash/')) return null;
+  let out = u.replace('/rule/Clash/', '/rule/SingBox/');
+  out = out
+    .replace('Advertising_Classical.yaml', 'Advertising.srs')
+    .replace('ChinaMax_Classical.yaml', 'ChinaMax.srs')
+    .replace('Global_Classical.yaml', 'Global.srs')
+    .replace(/\.yaml$/i, '.srs');
+  return out;
+}
+
 function toDuration(v, fallback = '600s') {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -99,13 +113,26 @@ function convert(template) {
     }
   }
 
-  const rule_set = Object.entries(providers).map(([tag, v]) => ({
-    tag,
-    type: 'remote',
-    format: 'source',
-    url: String(v?.url || ''),
-    update_interval: '1d'
-  })).filter(x => x.url);
+  const rule_set = Object.entries(providers).map(([tag, v]) => {
+    const rawUrl = String(v?.url || '');
+    const mapped = mapRuleProviderToSingboxSrs(rawUrl);
+    if (mapped) {
+      return {
+        tag,
+        type: 'remote',
+        format: 'binary',
+        url: mapped,
+        update_interval: '1d'
+      };
+    }
+    return {
+      tag,
+      type: 'remote',
+      format: 'source',
+      url: rawUrl,
+      update_interval: '1d'
+    };
+  }).filter(x => x.url);
 
 
   const geositeNames = [];
@@ -134,6 +161,10 @@ function convert(template) {
         { tag: 'dns-direct', address: '223.5.5.5', detour: 'direct' }
       ],
       rules: [
+        {
+          domain_suffix: ['zzao.de', 'fengqi0216.top'],
+          server: 'dns-direct'
+        },
         { rule_set: ['geosite-cn'], server: 'dns-direct' }
       ]
     },

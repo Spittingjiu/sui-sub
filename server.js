@@ -1236,10 +1236,36 @@ function parseLinkToSingboxOutbound(raw, uniqueName) {
       uuid: decodeURIComponent(u.username || '')
     };
     if (!o.server || !o.server_port || !o.uuid) return null;
-    const flow = u.searchParams.get('flow');
-    if (flow) o.flow = flow;
+
     const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
-    if (security !== 'none') o.tls = { enabled: true, server_name: sni || undefined };
+    const flow = u.searchParams.get('flow');
+    const fp = u.searchParams.get('fp') || 'chrome';
+    const pbk = u.searchParams.get('pbk') || '';
+    const sid = u.searchParams.get('sid') || '';
+
+    if (security !== 'none') {
+      o.tls = {
+        enabled: true,
+        server_name: sni || undefined,
+        utls: {
+          enabled: true,
+          fingerprint: fp || 'chrome'
+        }
+      };
+      if (security === 'reality') {
+        o.tls.reality = {
+          enabled: true,
+          public_key: pbk || '',
+          short_id: sid || ''
+        };
+        o.flow = flow || 'xtls-rprx-vision';
+      } else if (flow) {
+        o.flow = flow;
+      }
+    } else if (flow) {
+      o.flow = flow;
+    }
+
     if (network === 'ws') {
       o.transport = {
         type: 'ws',
@@ -1304,13 +1330,58 @@ function parseLinkToSingboxOutbound(raw, uniqueName) {
   return null;
 }
 
+
+function mapClashRuleSetToSingbox(url) {
+  const u = String(url || '');
+  if (!u.includes('/rule/Clash/')) return null;
+  return u
+    .replace('/rule/Clash/', '/rule/SingBox/')
+    .replace('Advertising_Classical.yaml', 'Advertising.srs')
+    .replace('ChinaMax_Classical.yaml', 'ChinaMax.srs')
+    .replace('Global_Classical.yaml', 'Global.srs')
+    .replace(/\.yaml$/i, '.srs');
+}
+
+function ensureSingboxTemplateCompat(template) {
+  const t = { ...(template || {}) };
+  const route = { ...(t.route || {}) };
+  const dns = { ...(t.dns || {}) };
+
+  // DNS rules: keep explicit domain suffix rule first, then geosite-cn -> dns-direct
+  const dnsRules = Array.isArray(dns.rules) ? [...dns.rules] : [];
+  const ownDomainRule = {
+    domain_suffix: ['zzao.de', 'fengqi0216.top'],
+    server: 'dns-direct'
+  };
+  const geositeCnRule = { rule_set: ['geosite-cn'], server: 'dns-direct' };
+  const rest = dnsRules.filter(r => !(Array.isArray(r?.domain_suffix) && (r.domain_suffix.includes('zzao.de') || r.domain_suffix.includes('fengqi0216.top'))));
+  dns.rules = [ownDomainRule, ...rest];
+  if (!dns.rules.some(r => JSON.stringify(r) === JSON.stringify(geositeCnRule))) dns.rules.push(geositeCnRule);
+
+  // Rule-set conversion: Blackmatrix7 Clash YAML -> SingBox SRS binary
+  const rs = Array.isArray(route.rule_set) ? route.rule_set.map(x => ({ ...x })) : [];
+  for (const item of rs) {
+    const mapped = mapClashRuleSetToSingbox(item.url || '');
+    if (mapped) {
+      item.url = mapped;
+      item.format = 'binary';
+    }
+  }
+  route.rule_set = rs;
+
+  t.dns = dns;
+  t.route = route;
+  return t;
+}
+
 async function buildSingboxConfigByLinks(links = []) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   const resp = await fetch('https://raw.githubusercontent.com/Spittingjiu/sui-sub/main/experimental/singbox/singbox-template.json', { signal: controller.signal });
   clearTimeout(timer);
   if (!resp.ok) throw new Error(`singbox template fetch failed: ${resp.status}`);
-  const template = JSON.parse(await resp.text());
+  const templateRaw = JSON.parse(await resp.text());
+  const template = ensureSingboxTemplateCompat(templateRaw);
 
   const uniq = uniqNameFactory();
   const nodes = [];
