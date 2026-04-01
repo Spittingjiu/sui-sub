@@ -5,23 +5,20 @@
   "dns": {
     "servers": [
       {
+        "type": "https",
         "tag": "dns-remote",
-        "address": "https://1.1.1.1/dns-query",
+        "server": "1.1.1.1",
+        "path": "/dns-query",
         "detour": "节点选择"
       },
       {
+        "type": "udp",
         "tag": "dns-direct",
-        "address": "https://dns.alidns.com/dns-query",
+        "server": "223.5.5.5",
         "detour": "direct"
       }
     ],
     "rules": [
-      {
-        "geosite": [
-          "cn"
-        ],
-        "server": "dns-direct"
-      },
       {
         "server": "dns-remote"
       }
@@ -57,12 +54,18 @@
     {
       "type": "selector",
       "tag": "手动选择",
-      "outbounds": []
+      "outbounds": [
+        "direct"
+      ],
+      "default": "direct"
     },
     {
       "type": "selector",
       "tag": "独立选择",
-      "outbounds": []
+      "outbounds": [
+        "direct"
+      ],
+      "default": "direct"
     },
     {
       "type": "selector",
@@ -103,7 +106,9 @@
     {
       "type": "urltest",
       "tag": "自动选择",
-      "outbounds": [],
+      "outbounds": [
+        "direct"
+      ],
       "url": "https://cp.cloudflare.com/generate_204",
       "interval": "600s",
       "tolerance": 100
@@ -111,6 +116,7 @@
   ],
   "route": {
     "auto_detect_interface": true,
+    "default_domain_resolver": "dns-remote",
     "rule_set": [
       {
         "tag": "reject",
@@ -270,22 +276,8 @@
       },
       {
         "action": "route",
-        "geosite": [
-          "geolocation-!cn"
-        ],
-        "outbound": "节点选择"
-      },
-      {
-        "action": "route",
         "rule_set": [
           "direct"
-        ],
-        "outbound": "direct"
-      },
-      {
-        "action": "route",
-        "geosite": [
-          "cn"
         ],
         "outbound": "direct"
       },
@@ -307,6 +299,5 @@
     "clash_api": {
       "external_controller": "127.0.0.1:9090"
     }
-  },
-  "x-openclaw-note": "Generated from Clash template for split-routing migration. Keep existing Clash business unchanged."
+  }
 }

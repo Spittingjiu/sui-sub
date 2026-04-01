@@ -6,6 +6,7 @@
 ## 当前落地状态
 - 已新增转换脚本：`scripts/clash_to_singbox.mjs`
 - 已生成测试模板：`experimental/singbox/singbox-template.json`
+- 已通过 sing-box 官方容器 `check`（语法/结构可启动级通过）
 - 未接入线上接口，不影响现有 `sui-sub` 业务。
 
 ## 使用方法（离线验证）
@@ -26,3 +27,8 @@
 1. 加一份小规模真实节点样本，跑 sing-box 本地启动验证
 2. 对齐策略组命名与分流命中结果
 3. 评估后决定是否新增 `/sub/:token/singbox` 只读导出接口（不改现有 clash 接口）
+
+
+## 本轮验证结论
+- 启动级校验通过（docker: `ghcr.io/sagernet/sing-box:latest check -c /cfg.json`）。
+- 为兼容 sing-box >=1.12，暂时跳过了 geosite 旧字段直转（后续可补新规则集映射）。

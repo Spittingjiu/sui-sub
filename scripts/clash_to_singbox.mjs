@@ -36,7 +36,8 @@ function parseRule(str) {
     return { action: 'route', domain_keyword: [p[1]], outbound: mapOutboundTarget(p[2]) };
   }
   if (k === 'GEOSITE' && p.length >= 3) {
-    return { action: 'route', geosite: [p[1]], outbound: mapOutboundTarget(p[2]) };
+    // geosite removed in sing-box >=1.12, keep migration safe by skipping here
+    return null;
   }
   if (k === 'IP-CIDR' && p.length >= 3) {
     return { action: 'route', ip_cidr: [p[1]], outbound: mapOutboundTarget(p[2]) };
@@ -67,7 +68,8 @@ function convert(template) {
     const type = String(g?.type || '').toLowerCase();
     const tag = String(g?.name || '').trim();
     if (!tag) continue;
-    const outs = (Array.isArray(g?.proxies) ? g.proxies : []).map(mapOutboundTarget).filter(Boolean);
+    let outs = (Array.isArray(g?.proxies) ? g.proxies : []).map(mapOutboundTarget).filter(Boolean);
+    if (!outs.length) outs = ['direct'];
 
     if (type === 'url-test' || type === 'urltest') {
       outbounds.push({
@@ -102,11 +104,10 @@ function convert(template) {
     log: { level: 'info' },
     dns: {
       servers: [
-        { tag: 'dns-remote', address: 'https://1.1.1.1/dns-query', detour: '节点选择' },
-        { tag: 'dns-direct', address: 'https://dns.alidns.com/dns-query', detour: 'direct' }
+        { type: 'https', tag: 'dns-remote', server: '1.1.1.1', path: '/dns-query', detour: '节点选择' },
+        { type: 'udp', tag: 'dns-direct', server: '223.5.5.5', detour: 'direct' }
       ],
       rules: [
-        { geosite: ['cn'], server: 'dns-direct' },
         { server: 'dns-remote' }
       ]
     },
@@ -116,6 +117,7 @@ function convert(template) {
     outbounds,
     route: {
       auto_detect_interface: true,
+      default_domain_resolver: 'dns-remote',
       rule_set,
       rules: routeRules,
       final: '节点选择'
@@ -124,8 +126,7 @@ function convert(template) {
       clash_api: {
         external_controller: '127.0.0.1:9090'
       }
-    },
-    'x-openclaw-note': 'Generated from Clash template for split-routing migration. Keep existing Clash business unchanged.'
+    }
   };
 }
 
