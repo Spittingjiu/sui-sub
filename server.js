@@ -1546,21 +1546,29 @@ function detectClientIp(req) {
   return String(req.ip || req.socket?.remoteAddress || '').trim();
 }
 
-function detectDeviceHint(ua = '') {
+function detectDeviceHint(req, ua = '') {
   const s = String(ua || '').toLowerCase();
-  if (!s) return 'unknown';
-  if (s.includes('clash verge')) return 'Clash Verge';
-  if (s.includes('mihomo')) return 'Mihomo';
-  if (s.includes('clash.meta')) return 'Clash.Meta';
-  if (s.includes('clash')) return 'Clash';
-  if (s.includes('quantumult x')) return 'Quantumult X';
-  if (s.includes('surge')) return 'Surge';
-  if (s.includes('loon')) return 'Loon';
-  if (s.includes('windows')) return 'Windows';
-  if (s.includes('mac os') || s.includes('macintosh')) return 'macOS';
-  if (s.includes('android')) return 'Android';
-  if (s.includes('iphone') || s.includes('ios') || s.includes('ipad')) return 'iOS';
-  if (s.includes('linux')) return 'Linux';
+  const chPlatformRaw = String(req.headers['sec-ch-ua-platform'] || '').replaceAll('"', '').trim().toLowerCase();
+
+  let os = 'unknown';
+  if (s.includes('windows') || chPlatformRaw === 'windows') os = 'Windows';
+  else if (s.includes('android') || chPlatformRaw === 'android') os = 'Android';
+  else if (s.includes('iphone') || s.includes('ipad') || s.includes('ios') || chPlatformRaw === 'ios') os = 'iOS';
+  else if (s.includes('mac os') || s.includes('macintosh') || chPlatformRaw === 'macos') os = 'macOS';
+  else if (s.includes('linux') || chPlatformRaw === 'linux') os = 'Linux';
+
+  let client = '';
+  if (s.includes('clash verge')) client = 'Clash Verge';
+  else if (s.includes('mihomo')) client = 'Mihomo';
+  else if (s.includes('clash.meta')) client = 'Clash.Meta';
+  else if (s.includes('clash')) client = 'Clash';
+  else if (s.includes('quantumult x')) client = 'Quantumult X';
+  else if (s.includes('surge')) client = 'Surge';
+  else if (s.includes('loon')) client = 'Loon';
+
+  if (os !== 'unknown' && client) return `${os} (${client})`;
+  if (os !== 'unknown') return os;
+  if (client) return client;
   return 'unknown';
 }
 
@@ -1574,7 +1582,7 @@ function recordSubscriptionLog(req, sub, routeType) {
       String(routeType || 'unknown'),
       detectClientIp(req),
       ua,
-      detectDeviceHint(ua),
+      detectDeviceHint(req, ua),
       now()
     );
     db.prepare(`DELETE FROM subscription_logs WHERE id NOT IN (SELECT id FROM subscription_logs ORDER BY id DESC LIMIT 10)`).run();
