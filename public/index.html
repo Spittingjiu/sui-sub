@@ -170,9 +170,7 @@
   <div id="linkModal" class="modal-mask hide">
     <div class="modal-box">
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">订阅二维码</h3><button onclick="closeLinkModal()">关闭</button></div>
-      <div class="row" style="gap:8px;margin:8px 0 2px">
-        <button id="linkTabGeneral" class="tab-on">通用版</button>
-      </div>
+      <div class="muted" style="margin:8px 0 2px">Clash 订阅链接</div>
       <img id="linkQr" alt="订阅二维码" />
       <input id="linkText" readonly />
       <div class="row" style="margin-top:10px;justify-content:flex-end">
@@ -327,7 +325,6 @@ function renderLinkModal(){
   const qrEl=q('#linkQr');
   if(textEl) textEl.value=link;
   if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(link)}`;
-  q('#linkTabGeneral')?.classList.add('tab-on');
 }
 function openLinkModal(link, clashImportUri=''){
   currentModalLink=String(link||'');
