@@ -17,7 +17,7 @@ const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-cha
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
-const CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/clash-template.json';
+const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/clash-template.json';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
 
 
@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE TABLE IF NOT EXISTS admin_settings (
   id INTEGER PRIMARY KEY CHECK (id=1),
   username TEXT NOT NULL,
-  password TEXT NOT NULL
+  password TEXT NOT NULL,
+  template_url TEXT NOT NULL DEFAULT ''
 );
 `);
 
@@ -123,15 +124,25 @@ const hasSourceTypeCol = sourceCols.includes('source_type');
 const subCols = db.prepare(`PRAGMA table_info(subscriptions)`).all().map(x => x.name);
 if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD COLUMN node_ids_json TEXT NOT NULL DEFAULT '[]'`);
 
+let adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
+if (!adminCols.includes('template_url')) db.exec(`ALTER TABLE admin_settings ADD COLUMN template_url TEXT NOT NULL DEFAULT ''`);
+adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
+
 const rowAdmin = db.prepare('SELECT * FROM admin_settings WHERE id=1').get();
 if (!rowAdmin) {
-  db.prepare('INSERT INTO admin_settings(id,username,password) VALUES(1,?,?)').run(ADMIN_USER, ADMIN_PASS);
+  db.prepare('INSERT INTO admin_settings(id,username,password,template_url) VALUES(1,?,?,?)').run(ADMIN_USER, ADMIN_PASS, DEFAULT_CLASH_TEMPLATE_URL);
 }
 function getAdminSettings(){
-  return db.prepare('SELECT username,password FROM admin_settings WHERE id=1').get() || { username: ADMIN_USER, password: ADMIN_PASS };
+  const row = db.prepare('SELECT username,password,template_url FROM admin_settings WHERE id=1').get();
+  if (!row) return { username: ADMIN_USER, password: ADMIN_PASS, template_url: DEFAULT_CLASH_TEMPLATE_URL };
+  return {
+    username: row.username,
+    password: row.password,
+    template_url: String(row.template_url || DEFAULT_CLASH_TEMPLATE_URL)
+  };
 }
-function setAdminSettings(username,password){
-  db.prepare('UPDATE admin_settings SET username=?, password=? WHERE id=1').run(username,password);
+function setAdminSettings(username,password,template_url){
+  db.prepare('UPDATE admin_settings SET username=?, password=?, template_url=? WHERE id=1').run(username,password,template_url);
 }
 
 
@@ -462,16 +473,22 @@ app.get('/api/auth/me', (req, res) => {
 
 app.get('/api/admin/user', (_req, res) => {
   const adm = getAdminSettings();
-  res.json({ ok: true, username: adm.username });
+  res.json({ ok: true, username: adm.username, template_url: adm.template_url || DEFAULT_CLASH_TEMPLATE_URL });
 });
 
 app.post('/api/admin/user', (req, res) => {
   try {
+    const current = getAdminSettings();
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
+    const template_url = String(req.body?.template_url || '').trim() || DEFAULT_CLASH_TEMPLATE_URL;
+
     if (!username) return res.status(400).json({ ok: false, error: 'username 必填' });
-    if (!password || password.length < 6) return res.status(400).json({ ok: false, error: 'password 至少6位' });
-    setAdminSettings(username, password);
+    if (password && password.length < 6) return res.status(400).json({ ok: false, error: 'password 至少6位' });
+    if (!/^https?:\/\//i.test(template_url)) return res.status(400).json({ ok: false, error: 'template_url 必须是 http/https 链接' });
+
+    const nextPassword = password || current.password;
+    setAdminSettings(username, nextPassword, template_url);
     cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
@@ -1201,11 +1218,13 @@ function deepMerge(base, override) {
   return out;
 }
 
-let clashTemplateCache = { at: 0, data: null };
+let clashTemplateCache = { at: 0, data: null, url: '' };
 
 async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
   const nowTs = Date.now();
-  const canUseCache = clashTemplateCache.data && (nowTs - clashTemplateCache.at) < CLASH_TEMPLATE_CACHE_MS;
+  const templateUrl = String(getAdminSettings().template_url || DEFAULT_CLASH_TEMPLATE_URL);
+  const sameUrl = clashTemplateCache.url === templateUrl;
+  const canUseCache = sameUrl && clashTemplateCache.data && (nowTs - clashTemplateCache.at) < CLASH_TEMPLATE_CACHE_MS;
 
   if (!forceRefresh && canUseCache) return clashTemplateCache.data;
 
@@ -1213,8 +1232,8 @@ async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     const url = forceRefresh
-      ? `${CLASH_TEMPLATE_URL}${CLASH_TEMPLATE_URL.includes('?') ? '&' : '?'}_ts=${Date.now()}`
-      : CLASH_TEMPLATE_URL;
+      ? `${templateUrl}${templateUrl.includes('?') ? '&' : '?'}_ts=${Date.now()}`
+      : templateUrl;
     const resp = await fetch(url, {
       headers: {
         'accept': 'application/json,text/plain,*/*',
@@ -1229,7 +1248,7 @@ async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
     const obj = JSON.parse(text);
     if (!isPlainObject(obj)) throw new Error('template is not object');
 
-    clashTemplateCache = { at: nowTs, data: obj };
+    clashTemplateCache = { at: nowTs, data: obj, url: templateUrl };
     return obj;
   } catch (e) {
     console.warn('[clash-template] refresh failed, fallback cache/built-in:', e?.message || e);

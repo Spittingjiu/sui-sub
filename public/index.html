@@ -134,9 +134,13 @@
         <h3>用户管理</h3>
         <div class="row">
           <input id="adminUser" placeholder="新用户名" style="max-width:240px"/>
-          <input id="adminPass" type="password" placeholder="新密码（至少6位）" style="max-width:260px"/>
-          <button onclick="saveAdminUser()">保存账号密码</button>
+          <input id="adminPass" type="password" placeholder="新密码（留空=不修改）" style="max-width:260px"/>
+          <button onclick="saveAdminUser()">保存设置</button>
         </div>
+        <div class="row" style="margin-top:10px">
+          <input id="templateUrl" placeholder="Clash 模板 URL" style="min-width:420px;max-width:900px;flex:1"/>
+        </div>
+        <div class="muted" style="margin-top:6px">默认：我们当前上传的 GitHub 通用模板；你也可以填任意可访问的 http/https 模板链接。</div>
       </div>
     </div>
   </div>
@@ -425,8 +429,8 @@ async function loadSuiNodes(){const sel=q('#suiSource'),box=q('#suiNodes');if(!s
 async function quickReality(){const sel=q('#suiSource');if(!sel||!sel.value)return toast('请先选择源','err');const sourceId=Number(sel.value);const remark=(q('#realityName')?.value||'').trim()||`quick-${Date.now()}`;await api(`/api/sui/${sourceId}/reality-quick`,{method:'POST',body:JSON.stringify({remark})});q('#realityName').value='';toast(`已创建 Reality 节点：${remark}`,'ok');await refreshAll();await loadSuiNodes();}
 async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该节点？'))return;await api(`/api/sui/${sourceId}/inbounds/${inboundId}`,{method:'DELETE'});toast('节点已删除','ok');await refreshAll();await loadSuiNodes();}
 
-async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';}
-async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim();if(!username||password.length<6)return toast('用户名必填，密码至少6位','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password})});q('#adminPass').value='';toast('账号已更新（下次登录生效）','ok');}
+async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';q('#templateUrl').value=j.template_url||'';}
+async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim(),template_url=(q('#templateUrl').value||'').trim();if(!username)return toast('用户名必填','err');if(password&&password.length<6)return toast('密码至少6位（或留空不改）','err');if(!/^https?:\/\//i.test(template_url))return toast('模板URL必须是 http/https 链接','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password,template_url})});q('#adminPass').value='';toast('用户设置已更新并生效','ok');}
 
 function applyBootstrap(b){
   sources=b.sources||[];
