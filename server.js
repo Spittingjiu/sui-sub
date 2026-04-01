@@ -1377,6 +1377,10 @@ function ensureSingboxTemplateCompat(template) {
       item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs';
       item.format = 'binary';
     }
+    if (tag === 'google') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs';
+      item.format = 'binary';
+    }
     if (tag === 'my_whitelist') {
       item.url = 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json';
       item.format = 'source';
