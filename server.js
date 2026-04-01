@@ -766,6 +766,7 @@ app.get('/api/sui/:sourceId/inbounds', async (req, res) => {
     const sourceId = Number(req.params.sourceId);
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    if (String(source.source_type || 'sui_api') === 'local') return res.status(400).json({ ok: false, error: 'local source does not support SUI inbounds' });
     const j = await suiRequest(source, '/api/inbounds');
     if (!j?.success || !Array.isArray(j?.obj)) return res.status(500).json({ ok: false, error: 'sui response invalid' });
     res.json({ ok: true, inbounds: j.obj });
