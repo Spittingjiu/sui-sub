@@ -1293,13 +1293,6 @@ async function buildClashConfigByLinks(links = []) {
     if (p) proxies.push(p);
   }
 
-  const names = proxies.map(x => x.name);
-  const hasNodes = names.length > 0;
-  const nodePool = hasNodes ? names : ['DIRECT'];
-
-  const usNodes = await pickUsNodesByIp(proxies);
-  const ytPool = [...new Set([...usNodes, '手动选择', '独立选择', '自动选择'])].filter(Boolean);
-  const dedicatedPool = [...nodePool, '手动选择', '独立选择', '自动选择'];
 
   const builtInBase = {
     'mixed-port': 7890,
@@ -1415,57 +1408,13 @@ async function buildClashConfigByLinks(links = []) {
   };
 
   const dynamicPart = {
-    proxies,
-    'proxy-groups': [
-      {
-        name: '节点选择',
-        type: 'select',
-        proxies: ['手动选择', '独立选择', 'DIRECT', '自动选择']
-      },
-      {
-        name: '手动选择',
-        type: 'select',
-        proxies: [...nodePool, '自动选择']
-      },
-      {
-        name: '独立选择',
-        type: 'select',
-        proxies: [...nodePool, '自动选择']
-      },
-      {
-        name: 'AI分流',
-        type: 'select',
-        proxies: dedicatedPool
-      },
-      {
-        name: 'YouTube分流',
-        type: 'select',
-        proxies: ytPool.length ? ytPool : ['手动选择', '自动选择']
-      },
-      {
-        name: 'Telegram分流',
-        type: 'select',
-        proxies: dedicatedPool
-      },
-      {
-        name: 'Google',
-        type: 'select',
-        proxies: dedicatedPool
-      },
-      {
-        name: '自动选择',
-        type: 'url-test',
-        proxies: nodePool,
-        url: 'https://cp.cloudflare.com/generate_204',
-        interval: 600,
-        tolerance: 100
-      }
-    ]
+    // 仅注入节点；其余（策略组/规则/DNS等）完全由模板决定
+    proxies
   };
 
   const remoteBase = await loadRemoteClashTemplate({ forceRefresh: true });
-  const mergedBase = remoteBase ? deepMerge(builtInBase, remoteBase) : builtInBase;
-  const cfg = { ...mergedBase, ...dynamicPart };
+  const templateBase = remoteBase || builtInBase;
+  const cfg = { ...templateBase, ...dynamicPart };
 
 
   return toYaml(cfg) + '\n';
