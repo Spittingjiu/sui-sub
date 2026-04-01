@@ -1195,8 +1195,8 @@ async function buildClashConfigByLinks(links = []) {
   const nodePool = hasNodes ? names : ['DIRECT'];
 
   const usNodes = await pickUsNodesByIp(proxies);
-  const ytPool = [...new Set([...usNodes, '自动选择', '手动选择'])].filter(Boolean);
-  const dedicatedPool = [...nodePool, '自动选择', '手动选择'];
+  const ytPool = [...new Set([...usNodes, '手动选择', '独立选择', '自动选择'])].filter(Boolean);
+  const dedicatedPool = [...nodePool, '手动选择', '独立选择', '自动选择'];
 
   const cfg = {
     'mixed-port': 7890,
@@ -1279,20 +1279,17 @@ async function buildClashConfigByLinks(links = []) {
       {
         name: '节点选择',
         type: 'select',
-        proxies: ['自动选择', '手动选择', 'DIRECT']
+        proxies: ['手动选择', '独立选择', 'DIRECT', '自动选择']
       },
       {
         name: '手动选择',
         type: 'select',
-        proxies: nodePool
+        proxies: [...nodePool, '自动选择']
       },
       {
-        name: '自动选择',
-        type: 'url-test',
-        proxies: nodePool,
-        url: 'https://cp.cloudflare.com/generate_204',
-        interval: 600,
-        tolerance: 100
+        name: '独立选择',
+        type: 'select',
+        proxies: [...nodePool, '自动选择']
       },
       {
         name: 'AI分流',
@@ -1302,7 +1299,7 @@ async function buildClashConfigByLinks(links = []) {
       {
         name: 'YouTube分流',
         type: 'select',
-        proxies: ytPool.length ? ytPool : ['自动选择', '手动选择']
+        proxies: ytPool.length ? ytPool : ['手动选择', '自动选择']
       },
       {
         name: 'Telegram分流',
@@ -1313,6 +1310,14 @@ async function buildClashConfigByLinks(links = []) {
         name: 'Google',
         type: 'select',
         proxies: dedicatedPool
+      },
+      {
+        name: '自动选择',
+        type: 'url-test',
+        proxies: nodePool,
+        url: 'https://cp.cloudflare.com/generate_204',
+        interval: 600,
+        tolerance: 100
       }
     ],
     'rule-providers': {
@@ -1360,12 +1365,42 @@ async function buildClashGameConfigByLinks(links = []) {
   const yaml = await buildClashConfigByLinks(links);
   const lines = String(yaml || '').split('\n');
   const out = [];
+
+  let inRuleProviders = false;
+  let skippingRejectProvider = false;
+
   for (const line of lines) {
     const t = line.trim();
-    if (t === 'reject:' || t.startsWith('RULE-SET,reject,REJECT')) continue;
+    const indent = line.match(/^\s*/)?.[0]?.length || 0;
+
+    if (!inRuleProviders && t === 'rule-providers:') {
+      inRuleProviders = true;
+      out.push(line);
+      continue;
+    }
+
+    if (inRuleProviders) {
+      if (indent === 0 && t.endsWith(':') && t !== 'rule-providers:') {
+        inRuleProviders = false;
+        skippingRejectProvider = false;
+      } else {
+        if (!skippingRejectProvider && indent === 2 && t === 'reject:') {
+          skippingRejectProvider = true;
+          continue;
+        }
+        if (skippingRejectProvider) {
+          if (indent > 2) continue;
+          skippingRejectProvider = false;
+        }
+      }
+    }
+
+    if (t.startsWith('- "RULE-SET,reject,REJECT"')) continue;
     if (t.includes(',REJECT"')) continue;
+
     out.push(line);
   }
+
   return out.join('\n');
 }
 
