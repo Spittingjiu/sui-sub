@@ -1381,6 +1381,26 @@ function ensureSingboxTemplateCompat(template) {
       item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs';
       item.format = 'binary';
     }
+    if (tag === 'proxy') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs';
+      item.format = 'binary';
+    }
+    if (tag === 'youtube') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs';
+      item.format = 'binary';
+    }
+    if (tag === 'telegram') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/telegram.srs';
+      item.format = 'binary';
+    }
+    if (tag === 'cncidr') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs';
+      item.format = 'binary';
+    }
+    if (tag === 'lancidr') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs';
+      item.format = 'binary';
+    }
     if (tag === 'my_whitelist') {
       item.url = 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json';
       item.format = 'source';
