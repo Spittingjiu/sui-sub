@@ -134,8 +134,7 @@ function convert(template) {
         { tag: 'dns-direct', address: '223.5.5.5', detour: 'direct' }
       ],
       rules: [
-        { rule_set: ['geosite-cn'], server: 'dns-direct' },
-        { server: 'dns-remote' }
+        { rule_set: ['geosite-cn'], server: 'dns-direct' }
       ]
     },
     inbounds: [
