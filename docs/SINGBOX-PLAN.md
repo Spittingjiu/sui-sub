@@ -38,3 +38,9 @@
 - 已将 Clash 的 `GEOSITE,xxx,...` 转换为 sing-box `rule_set` 引用（`geosite-xxx`）。
 - geosite 规则集来源：`https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/<name>.srs`。
 - 目前已验证 `cn` 与 `geolocation-!cn` 映射有效，且容器 `check` 通过。
+
+
+## 命中对照
+- 已新增脚本：`scripts/compare_clash_singbox.mjs`
+- 已生成报告：`experimental/singbox/match-report.md`
+- 当前小样本对照结果：一致（语义等价：DIRECT≈direct, REJECT≈block）
