@@ -180,11 +180,24 @@
     </div>
   </div>
 
+
+  <div id="singboxModal" class="modal-mask hide">
+    <div class="modal-box">
+      <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">sing-box 订阅二维码</h3><button onclick="closeSingboxModal()">关闭</button></div>
+      <img id="singboxQr" alt="sing-box 订阅二维码" />
+      <input id="singboxText" readonly />
+      <div class="row" style="margin-top:10px;justify-content:flex-end">
+        <button onclick="copySingboxModalLink()">复制链接</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
 let currentModalLink='';
 let currentModalClashImport='';
+let currentSingboxModalLink='';
 let theme='dark';
 let activeTab='home';
 const selectedNodeIds=new Set();
@@ -379,6 +392,20 @@ async function copyAnyText(txt, okMsg='已复制链接'){
   }
 }
 
+
+function openSingboxModal(link=''){
+  currentSingboxModalLink=String(link||'').trim();
+  const textEl=q('#singboxText');
+  const qrEl=q('#singboxQr');
+  if(textEl) textEl.value=currentSingboxModalLink;
+  if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(currentSingboxModalLink)}`;
+  q('#singboxModal')?.classList.remove('hide');
+}
+function closeSingboxModal(){ q('#singboxModal')?.classList.add('hide'); }
+async function copySingboxModalLink(){
+  await copyAnyText(currentSingboxModalLink,'已复制 sing-box 链接');
+}
+
 function renderSubsUI(arr){
   const box=q('#subs');
   if(!arr.length){box.innerHTML='<div class="muted">暂无</div>';return;}
@@ -393,7 +420,7 @@ function renderSubsUI(arr){
     row.querySelector('input').onclick=e=>e.target.select();
     row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri);
     row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri);
-    row.querySelector('[data-act="copy-singbox"]').onclick=()=>copyAnyText(singboxUrl,'已复制 sing-box 链接');
+    row.querySelector('[data-act="copy-singbox"]').onclick=()=>openSingboxModal(singboxUrl);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);
