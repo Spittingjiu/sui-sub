@@ -1344,124 +1344,181 @@ function mapClashRuleSetToSingbox(url) {
 
 function ensureSingboxTemplateCompat(template) {
   const t = { ...(template || {}) };
-  const route = { ...(t.route || {}) };
-  const dns = { ...(t.dns || {}) };
 
-  // DNS rules: keep explicit domain suffix rule first, then geosite-cn -> dns-direct
-  const dnsRules = Array.isArray(dns.rules) ? [...dns.rules] : [];
-  const ownDomainRule = {
-    domain_suffix: ['zzao.de', 'fengqi0216.top'],
-    server: 'dns-direct'
+  t.dns = {
+    servers: [
+      {
+        tag: 'dns-remote',
+        address: 'https://1.1.1.1/dns-query',
+        detour: '节点选择'
+      },
+      {
+        tag: 'dns-direct',
+        address: '223.5.5.5',
+        detour: 'direct'
+      },
+      {
+        tag: 'dns-block',
+        address: 'rcode://success'
+      }
+    ],
+    rules: [
+      {
+        domain_suffix: ['zzao.de', 'fengqi0216.top'],
+        server: 'dns-direct'
+      },
+      {
+        rule_set: ['reject'],
+        server: 'dns-block',
+        disable_cache: true
+      },
+      {
+        rule_set: ['geosite-cn'],
+        server: 'dns-direct'
+      },
+      {
+        rule_set: ['geosite-geolocation-!cn'],
+        server: 'dns-remote'
+      }
+    ],
+    final: 'dns-remote',
+    strategy: 'ipv4_only'
   };
-  const geositeCnRule = { rule_set: ['geosite-cn'], server: 'dns-direct' };
-  const rest = dnsRules.filter(r => !(Array.isArray(r?.domain_suffix) && (r.domain_suffix.includes('zzao.de') || r.domain_suffix.includes('fengqi0216.top'))));
-  dns.rules = [ownDomainRule, ...rest];
-  if (!dns.rules.some(r => JSON.stringify(r) === JSON.stringify(geositeCnRule))) dns.rules.push(geositeCnRule);
 
-  // Rule-set: unified MetaCubeX sources (single source of truth)
-  route.rule_set = [
-    {
-      tag: 'my_whitelist',
-      type: 'remote',
-      format: 'source',
-      url: 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'reject',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'private',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'lancidr',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'direct',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'geosite-cn',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'cncidr',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'openai',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'anthropic',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'youtube',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'telegram',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/telegram.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'google',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'proxy',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs',
-      download_detour: '节点选择'
-    },
-    {
-      tag: 'geosite-geolocation-!cn',
-      type: 'remote',
-      format: 'binary',
-      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs',
-      download_detour: '节点选择'
-    }
-  ];
+  t.route = {
+    ...(t.route || {}),
+    rule_set: [
+      {
+        tag: 'my_whitelist',
+        type: 'remote',
+        format: 'source',
+        url: 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'reject',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'lancidr',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'geosite-cn',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'cncidr',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'openai',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'anthropic',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'youtube',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'telegram',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/telegram.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'google',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs',
+        download_detour: '节点选择'
+      },
+      {
+        tag: 'geosite-geolocation-!cn',
+        type: 'remote',
+        format: 'binary',
+        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs',
+        download_detour: '节点选择'
+      }
+    ],
+    rules: [
+      {
+        action: 'route',
+        rule_set: ['my_whitelist'],
+        outbound: 'direct'
+      },
+      {
+        action: 'route',
+        rule_set: ['reject'],
+        outbound: 'block'
+      },
+      {
+        action: 'route',
+        rule_set: ['lancidr'],
+        outbound: 'direct'
+      },
+      {
+        action: 'route',
+        rule_set: ['openai', 'anthropic'],
+        outbound: 'AI分流'
+      },
+      {
+        action: 'route',
+        rule_set: ['youtube'],
+        outbound: 'YouTube分流'
+      },
+      {
+        action: 'route',
+        rule_set: ['telegram'],
+        outbound: 'Telegram分流'
+      },
+      {
+        action: 'route',
+        rule_set: ['google'],
+        outbound: 'Google'
+      },
+      {
+        action: 'route',
+        rule_set: ['geosite-geolocation-!cn'],
+        outbound: '节点选择'
+      },
+      {
+        action: 'route',
+        rule_set: ['geosite-cn', 'cncidr'],
+        outbound: 'direct'
+      },
+      {
+        action: 'route',
+        outbound: '节点选择'
+      }
+    ]
+  };
 
-  t.dns = dns;
-  t.route = route;
   return t;
 }
 
