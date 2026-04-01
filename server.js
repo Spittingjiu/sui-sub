@@ -19,7 +19,7 @@ const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/clash-template.json';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
-const STASH_TEMPLATE_URL = process.env.SUI_SUB_STASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-stash-template/main/stash-template.yaml';
+const STASH_TEMPLATE_URL = process.env.SUI_SUB_STASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/stash-template.yaml';
 
 
 const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
