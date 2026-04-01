@@ -110,6 +110,17 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   password TEXT NOT NULL,
   template_url TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS subscription_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token TEXT NOT NULL,
+  subscription_id INTEGER,
+  subscription_name TEXT,
+  route_type TEXT NOT NULL,
+  client_ip TEXT,
+  user_agent TEXT,
+  device_hint TEXT,
+  created_at TEXT NOT NULL
+);
 `);
 
 let sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
@@ -127,6 +138,8 @@ if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD C
 let adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
 if (!adminCols.includes('template_url')) db.exec(`ALTER TABLE admin_settings ADD COLUMN template_url TEXT NOT NULL DEFAULT ''`);
 adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sub_logs_created_at ON subscription_logs(created_at DESC)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sub_logs_token ON subscription_logs(token)`);
 
 const rowAdmin = db.prepare('SELECT * FROM admin_settings WHERE id=1').get();
 if (!rowAdmin) {
@@ -491,6 +504,21 @@ app.post('/api/admin/user', (req, res) => {
     setAdminSettings(username, nextPassword, template_url);
     cacheInvalidate();
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/admin/subscription-logs', (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+    const rows = db.prepare(`
+      SELECT id, token, subscription_id, subscription_name, route_type, client_ip, user_agent, device_hint, created_at
+      FROM subscription_logs
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(limit);
+    res.json({ ok: true, logs: rows });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -1490,8 +1518,11 @@ async function buildClashGameConfigByLinks(links = []) {
 }
 
 
-function getSubNodeLinksByToken(token) {
-  const sub = db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token);
+function getSubByToken(token) {
+  return db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token) || null;
+}
+
+function getSubNodeLinksBySub(sub) {
   if (!sub) return null;
   const sourceIds = (JSON.parse(sub.source_ids_json || '[]') || []).map(Number).filter(Boolean);
   const nodeIds = (JSON.parse(sub.node_ids_json || '[]') || []).map(Number).filter(Boolean);
@@ -1507,49 +1538,103 @@ function getSubNodeLinksByToken(token) {
   return rows.map(x => x.raw_link);
 }
 
+function detectClientIp(req) {
+  const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (xff.length) return xff[0];
+  const rip = String(req.headers['x-real-ip'] || '').trim();
+  if (rip) return rip;
+  return String(req.ip || req.socket?.remoteAddress || '').trim();
+}
+
+function detectDeviceHint(ua = '') {
+  const s = String(ua || '').toLowerCase();
+  if (!s) return 'unknown';
+  if (s.includes('clash verge')) return 'Clash Verge';
+  if (s.includes('mihomo')) return 'Mihomo';
+  if (s.includes('clash.meta')) return 'Clash.Meta';
+  if (s.includes('clash')) return 'Clash';
+  if (s.includes('quantumult x')) return 'Quantumult X';
+  if (s.includes('surge')) return 'Surge';
+  if (s.includes('loon')) return 'Loon';
+  if (s.includes('windows')) return 'Windows';
+  if (s.includes('mac os') || s.includes('macintosh')) return 'macOS';
+  if (s.includes('android')) return 'Android';
+  if (s.includes('iphone') || s.includes('ios') || s.includes('ipad')) return 'iOS';
+  if (s.includes('linux')) return 'Linux';
+  return 'unknown';
+}
+
+function recordSubscriptionLog(req, sub, routeType) {
+  try {
+    const ua = String(req.headers['user-agent'] || '');
+    db.prepare(`INSERT INTO subscription_logs(token,subscription_id,subscription_name,route_type,client_ip,user_agent,device_hint,created_at) VALUES(?,?,?,?,?,?,?,?)`).run(
+      String(sub?.token || ''),
+      Number(sub?.id || 0) || null,
+      String(sub?.name || ''),
+      String(routeType || 'unknown'),
+      detectClientIp(req),
+      ua,
+      detectDeviceHint(ua),
+      now()
+    );
+  } catch (_e) {}
+}
+
 app.get('/sub/:token', (req, res) => {
-  const links = getSubNodeLinksByToken(req.params.token);
-  if (links === null) return res.status(404).send('not found');
-  const encoded = Buffer.from(links.join('\n'), 'utf8').toString('base64');
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'plain-base64');
+  const encoded = Buffer.from((links || []).join('\n'), 'utf8').toString('base64');
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.send(encoded);
 });
 
 app.get('/api/sub/:token/plain', (req, res) => {
-  const links = getSubNodeLinksByToken(req.params.token);
-  if (links === null) return res.status(404).send('not found');
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'plain');
   res.setHeader('content-type', 'text/plain; charset=utf-8');
-  res.send(links.join('\n'));
+  res.send((links || []).join('\n'));
 });
 
 app.get('/sub/:token/clash', async (req, res) => {
-  const links = getSubNodeLinksByToken(req.params.token);
-  if (links === null) return res.status(404).send('not found');
-  const yaml = await buildClashConfigByLinks(links);
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'clash');
+  const yaml = await buildClashConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
 
 app.get('/api/sub/:token/clash', async (req, res) => {
-  const links = getSubNodeLinksByToken(req.params.token);
-  if (links === null) return res.status(404).send('not found');
-  const yaml = await buildClashConfigByLinks(links);
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'clash-api');
+  const yaml = await buildClashConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
 
 app.get('/sub/:token/clash-game', async (req, res) => {
-  const links = getSubNodeLinksByToken(req.params.token);
-  if (links === null) return res.status(404).send('not found');
-  const yaml = await buildClashGameConfigByLinks(links);
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'clash-game');
+  const yaml = await buildClashGameConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
 
 app.get('/api/sub/:token/clash-game', async (req, res) => {
-  const links = getSubNodeLinksByToken(req.params.token);
-  if (links === null) return res.status(404).send('not found');
-  const yaml = await buildClashGameConfigByLinks(links);
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'clash-game-api');
+  const yaml = await buildClashGameConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });

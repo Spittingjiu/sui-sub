@@ -142,6 +142,14 @@
         </div>
         <div class="muted" style="margin-top:6px">默认：我们当前上传的 GitHub 通用模板；你也可以填任意可访问的 http/https 模板链接。</div>
       </div>
+      <div class="card">
+        <h3>订阅更新日志</h3>
+        <div class="row" style="margin-bottom:8px">
+          <button onclick="loadSubLogs()">刷新日志</button>
+          <span class="muted">记录订阅更新时间、来源IP、UA与设备识别</span>
+        </div>
+        <div id="subLogs" class="muted">暂无日志</div>
+      </div>
     </div>
   </div>
 
@@ -429,8 +437,21 @@ async function loadSuiNodes(){const sel=q('#suiSource'),box=q('#suiNodes');if(!s
 async function quickReality(){const sel=q('#suiSource');if(!sel||!sel.value)return toast('请先选择源','err');const sourceId=Number(sel.value);const remark=(q('#realityName')?.value||'').trim()||`quick-${Date.now()}`;await api(`/api/sui/${sourceId}/reality-quick`,{method:'POST',body:JSON.stringify({remark})});q('#realityName').value='';toast(`已创建 Reality 节点：${remark}`,'ok');await refreshAll();await loadSuiNodes();}
 async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该节点？'))return;await api(`/api/sui/${sourceId}/inbounds/${inboundId}`,{method:'DELETE'});toast('节点已删除','ok');await refreshAll();await loadSuiNodes();}
 
-async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';q('#templateUrl').value=j.template_url||'';}
+async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';q('#templateUrl').value=j.template_url||'';await loadSubLogs();}
 async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim(),template_url=(q('#templateUrl').value||'').trim();if(!username)return toast('用户名必填','err');if(password&&password.length<6)return toast('密码至少6位（或留空不改）','err');if(!/^https?:\/\//i.test(template_url))return toast('模板URL必须是 http/https 链接','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password,template_url})});q('#adminPass').value='';toast('用户设置已更新并生效','ok');}
+
+async function loadSubLogs(){
+  const box=q('#subLogs');
+  if(!box) return;
+  try{
+    const j=await api('/api/admin/subscription-logs?limit=100');
+    const arr=j.logs||[];
+    if(!arr.length){box.innerHTML='<div class="muted">暂无日志</div>';return;}
+    box.innerHTML=`<div style="overflow-x:auto"><table><thead><tr><th>时间</th><th>订阅</th><th>类型</th><th>设备</th><th>IP</th><th>User-Agent</th></tr></thead><tbody>${arr.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString()}</td><td>${esc(x.subscription_name||x.token||'')}</td><td>${esc(x.route_type||'')}</td><td>${esc(x.device_hint||'unknown')}</td><td>${esc(x.client_ip||'')}</td><td title="${esc(x.user_agent||'')}">${esc((x.user_agent||'').slice(0,80))}${(x.user_agent||'').length>80?'...':''}</td></tr>`).join('')}</tbody></table></div>`;
+  }catch(e){
+    box.innerHTML=`<div class="err">日志加载失败：${esc(e.message)}</div>`;
+  }
+}
 
 function applyBootstrap(b){
   sources=b.sources||[];
