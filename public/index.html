@@ -38,8 +38,8 @@
     .modal-mask{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
     .modal-mask.hide{display:none!important}
     .modal-box{width:min(760px,96vw);max-height:88vh;overflow:auto;background:linear-gradient(180deg,var(--modal-grad1),var(--modal-grad2));border:1px solid #445189;border-radius:14px;padding:14px}
-    #linkModal .modal-box,#singboxModal .modal-box{width:min(430px,95vw)}
-    #linkQr,#singboxQr{width:220px;height:220px;border-radius:10px;border:1px solid #2b3963;background:#fff;padding:8px;display:block;margin:8px auto}
+    #linkModal .modal-box{width:min(430px,95vw)}
+    #linkQr{width:220px;height:220px;border-radius:10px;border:1px solid #2b3963;background:#fff;padding:8px;display:block;margin:8px auto}
     #loginCard{width:min(460px,94vw);padding:20px}
 
     body.theme-light{--bg:#f2f6ff;--bg2:#ffffff;--card:#ffffff;--line:#d8e2ff;--line2:#c5d4ff;--txt:#1b2440;--muted:rgba(27,36,64,.68);--ok:#16a34a;--err:#dc2626;--card-grad1:#ffffff;--card-grad2:#f7faff;--src-bg:#f8fbff;--src-line:#d5e1ff;--modal-grad1:#ffffff;--modal-grad2:#f7faff}
@@ -155,7 +155,7 @@
         <h3>订阅健康检查</h3>
         <div class="row" style="margin-bottom:8px">
           <button onclick="runSubHealthCheck()">一键健康检查</button>
-          <span class="muted">检查 Clash/sing-box 生成是否正常，并探测规则源可达性</span>
+          <span class="muted">检查 Clash 生成是否正常，并探测规则源可达性</span>
         </div>
         <div id="subHealth" class="log-box">暂无检查结果</div>
       </div>
@@ -193,10 +193,6 @@
     </div>
   </div>
 
-
-  <div id="singboxModal" class="modal-mask hide">
-    <div class="modal-box">
-      <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">订阅二维码</h3><button onclick="closeSingboxModal()">关闭</button></div>
       <div class="muted" style="margin:8px 0 2px">sing-box</div>
       <img id="singboxQr" alt="订阅二维码" />
       <input id="singboxText" readonly />
@@ -212,7 +208,6 @@ let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=
 let currentModalLinks={general:'',stash:''};
 let currentModalClashImports={general:'',stash:''};
 let currentLinkTab='general';
-let currentSingboxModalLink='';
 let theme='dark';
 let activeTab='home';
 const selectedNodeIds=new Set();
@@ -446,14 +441,12 @@ function renderSubsUI(arr){
     const full=(s.full_url||(`${location.origin}${s.url}`));
     const clashUrl = full.endsWith('/clash') ? full : `${full}/clash`;
     const stashUrl = full.endsWith('/stash') ? full : `${full}/stash`;
-    const singboxUrl = full.endsWith('/singbox') ? full : `${full}/singbox`;
     const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-通用版')}`;
     const row=document.createElement('div');row.className='src-item';
-    row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="copy-singbox">复制sing-box</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
+    row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
     row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri, stashUrl);
     row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri, stashUrl);
-    row.querySelector('[data-act="copy-singbox"]').onclick=()=>openSingboxModal(singboxUrl);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);
@@ -515,7 +508,7 @@ async function runSubHealthCheck(){
     const j=await api('/api/admin/sub-health');
     const arr=j.items||[];
     if(!arr.length){box.innerHTML='<div class="muted">暂无订阅</div>';return;}
-    box.innerHTML=`<div class="muted" style="margin-bottom:6px">检查时间：${new Date(j.checked_at).toLocaleString()}</div><div style="overflow-x:auto"><table><thead><tr><th>订阅</th><th>节点数</th><th>Clash</th><th>sing-box</th><th>规则源异常</th></tr></thead><tbody>${arr.map(x=>`<tr><td>${esc(x.name||'')}</td><td>${Number(x.node_count||0)}</td><td>${x.clash_ok?'<span class="ok">OK</span>':'<span class="err">FAIL</span>'}</td><td>${x.singbox_ok?'<span class="ok">OK</span>':'<span class="err">FAIL</span>'}</td><td>${(x.failed_rule_urls||[]).length?`<span class="err">${(x.failed_rule_urls||[]).length} 条</span><details><summary>展开</summary><div class="muted">${(x.failed_rule_urls||[]).map(esc).join('<br>')}</div></details>`:'<span class="ok">0</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+    box.innerHTML=`<div class="muted" style="margin-bottom:6px">检查时间：${new Date(j.checked_at).toLocaleString()}</div><div style="overflow-x:auto"><table><thead><tr><th>订阅</th><th>节点数</th><th>Clash</th><th>规则源异常</th></tr></thead><tbody>${arr.map(x=>`<tr><td>${esc(x.name||'')}</td><td>${Number(x.node_count||0)}</td><td>${x.clash_ok?'<span class="ok">OK</span>':'<span class="err">FAIL</span>'}</td><td>${(x.failed_rule_urls||[]).length?`<span class="err">${(x.failed_rule_urls||[]).length} 条</span><details><summary>展开</summary><div class="muted">${(x.failed_rule_urls||[]).map(esc).join('<br>')}</div></details>`:'<span class="ok">0</span>'}</td></tr>`).join('')}</tbody></table></div>`;
   }catch(e){
     box.innerHTML=`<div class="err">检查失败：${esc(e.message)}</div>`;
   }
