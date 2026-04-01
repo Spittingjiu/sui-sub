@@ -1859,7 +1859,8 @@ async function buildClashConfigByLinks(links = []) {
 async function buildStashConfigByLinks(links = []) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
-  const resp = await fetch(STASH_TEMPLATE_URL, { signal: controller.signal });
+  const stashUrl = `${STASH_TEMPLATE_URL}${STASH_TEMPLATE_URL.includes('?') ? '&' : '?'}_ts=${Date.now()}`;
+  const resp = await fetch(stashUrl, { headers: { 'cache-control': 'no-cache' }, signal: controller.signal });
   clearTimeout(timer);
   if (!resp.ok) throw new Error(`stash template fetch failed: ${resp.status}`);
   const tpl = await resp.text();
