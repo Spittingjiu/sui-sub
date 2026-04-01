@@ -266,9 +266,13 @@ function setLocalAddVisible(){
 function renderNodeSourceSelect(){
   const sel=q('#nodeSourceSelect'); if(!sel) return;
   const total = sources.reduce((a,s)=>a+Number(s.node_count||0),0);
-  const options=[`<option value=\"all\">全部源（${total}）</option>`].concat(
-    sources.map(s=>`<option value=\"${s.id}\">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}（${Number(s.node_count||0)}）</option>`)
-  );
+  const local = sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
+  const nonLocal = sources.filter(s=>!(String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual'));
+
+  const options=[`<option value=\"all\">全部源（${total}）</option>`];
+  if(local) options.push(`<option value=\"${local.id}\">本地节点（${Number(local.node_count||0)}）</option>`);
+  options.push(...nonLocal.map(s=>`<option value=\"${s.id}\">${s.name}（${Number(s.node_count||0)}）</option>`));
+
   sel.innerHTML=options.join('');
   const has=[...sel.options].some(o=>o.value===String(sourceViewId));
   sel.value=has?String(sourceViewId):'all';
