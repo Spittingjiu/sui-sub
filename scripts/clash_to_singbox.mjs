@@ -130,8 +130,8 @@ function convert(template) {
     log: { level: 'info' },
     dns: {
       servers: [
-        { type: 'https', tag: 'dns-remote', server: '1.1.1.1', path: '/dns-query', detour: '节点选择' },
-        { type: 'udp', tag: 'dns-direct', server: '223.5.5.5', detour: 'direct' }
+        { tag: 'dns-remote', address: 'https://1.1.1.1/dns-query', detour: '节点选择' },
+        { tag: 'dns-direct', address: '223.5.5.5', detour: 'direct' }
       ],
       rules: [
         { rule_set: ['geosite-cn'], server: 'dns-direct' },
@@ -144,7 +144,6 @@ function convert(template) {
     outbounds,
     route: {
       auto_detect_interface: true,
-      default_domain_resolver: 'dns-remote',
       rule_set: [...rule_set, ...geositeRuleSets],
       rules: routeRules,
       final: '节点选择'
