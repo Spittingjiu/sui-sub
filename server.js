@@ -1361,11 +1361,30 @@ function ensureSingboxTemplateCompat(template) {
   // Rule-set conversion: Blackmatrix7 Clash YAML -> SingBox SRS binary
   const rs = Array.isArray(route.rule_set) ? route.rule_set.map(x => ({ ...x })) : [];
   for (const item of rs) {
+    const tag = String(item.tag || '').trim();
     const mapped = mapClashRuleSetToSingbox(item.url || '');
     if (mapped) {
       item.url = mapped;
       item.format = 'binary';
     }
+
+    // 指定稳定源与格式
+    if (tag === 'openai') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs';
+      item.format = 'binary';
+    }
+    if (tag === 'anthropic') {
+      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs';
+      item.format = 'binary';
+    }
+    if (tag === 'my_whitelist') {
+      item.url = 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json';
+      item.format = 'source';
+    }
+
+    // 规则集下载走代理，防止直连 GitHub 超时
+    item.download_detour = '节点选择';
+    if (!item.update_interval) item.update_interval = '1d';
   }
   route.rule_set = rs;
 
