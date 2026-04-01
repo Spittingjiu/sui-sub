@@ -19,6 +19,7 @@ const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/clash-template.json';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
+const STASH_TEMPLATE_URL = process.env.SUI_SUB_STASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-stash-template/main/stash-template.yaml';
 
 
 const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
@@ -1854,6 +1855,32 @@ async function buildClashConfigByLinks(links = []) {
 }
 
 
+
+async function buildStashConfigByLinks(links = []) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  const resp = await fetch(STASH_TEMPLATE_URL, { signal: controller.signal });
+  clearTimeout(timer);
+  if (!resp.ok) throw new Error(`stash template fetch failed: ${resp.status}`);
+  const tpl = await resp.text();
+
+  const uniq = uniqNameFactory();
+  const proxies = [];
+  for (const raw of links) {
+    const p = parseLinkToClashProxy(raw, uniq);
+    if (p) proxies.push(p);
+  }
+
+  const proxiesYaml = toYaml({ proxies }, 0);
+  if (/\nproxies:\s*\[[^\]]*\]\s*$/m.test(tpl)) {
+    return tpl.replace(/\nproxies:\s*\[[^\]]*\]\s*$/m, `\n${proxiesYaml}`) + '\n';
+  }
+  if (/\nproxies:\s*\n/m.test(tpl)) {
+    return tpl.replace(/\nproxies:\s*\n[\s\S]*$/m, `\n${proxiesYaml}\n`);
+  }
+  return tpl.trimEnd() + `\n\n${proxiesYaml}\n`;
+}
+
 function getSubByToken(token) {
   return db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token) || null;
 }
@@ -1944,6 +1971,35 @@ app.get('/api/sub/:token/plain', (req, res) => {
   res.send((links || []).join('\n'));
 });
 
+
+
+app.get('/sub/:token/stash', async (req, res) => {
+  try {
+    const sub = getSubByToken(req.params.token);
+    if (!sub) return res.status(404).send('not found');
+    const links = getSubNodeLinksBySub(sub);
+    recordSubscriptionLog(req, sub, 'stash');
+    const yaml = await buildStashConfigByLinks(links || []);
+    res.setHeader('content-type', 'text/yaml; charset=utf-8');
+    res.send(yaml);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/sub/:token/stash', async (req, res) => {
+  try {
+    const sub = getSubByToken(req.params.token);
+    if (!sub) return res.status(404).send('not found');
+    const links = getSubNodeLinksBySub(sub);
+    recordSubscriptionLog(req, sub, 'stash-api');
+    const yaml = await buildStashConfigByLinks(links || []);
+    res.setHeader('content-type', 'text/yaml; charset=utf-8');
+    res.send(yaml);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 app.get('/sub/:token/singbox', async (req, res) => {
   try {

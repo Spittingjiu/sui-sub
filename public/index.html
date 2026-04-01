@@ -180,7 +180,10 @@
   <div id="linkModal" class="modal-mask hide">
     <div class="modal-box">
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">订阅二维码</h3><button onclick="closeLinkModal()">关闭</button></div>
-      <div class="muted" style="margin:8px 0 2px">Clash 订阅链接</div>
+      <div class="row" style="gap:8px;margin:8px 0 2px">
+        <button id="linkTabGeneral" class="tab-on" onclick="switchLinkTab('general')">通用版</button>
+        <button id="linkTabStash" onclick="switchLinkTab('stash')">Stash版</button>
+      </div>
       <img id="linkQr" alt="订阅二维码" />
       <input id="linkText" readonly />
       <div class="row" style="margin-top:10px;justify-content:flex-end">
@@ -206,8 +209,9 @@
 <script>
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
-let currentModalLink='';
-let currentModalClashImport='';
+let currentModalLinks={general:'',stash:''};
+let currentModalClashImports={general:'',stash:''};
+let currentLinkTab='general';
 let currentSingboxModalLink='';
 let theme='dark';
 let activeTab='home';
@@ -344,21 +348,36 @@ async function deleteLocalNode(id){
 }
 
 function renderLinkModal(){
-  const link=String(currentModalLink||'');
+  const mode=currentLinkTab==='stash'?'stash':'general';
+  const link=String(currentModalLinks[mode]||'').trim();
   const textEl=q('#linkText');
   const qrEl=q('#linkQr');
   if(textEl) textEl.value=link;
   if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(link)}`;
+  q('#linkTabGeneral')?.classList.toggle('tab-on',mode==='general');
+  q('#linkTabStash')?.classList.toggle('tab-on',mode==='stash');
 }
-function openLinkModal(link, clashImportUri=''){
-  currentModalLink=String(link||'');
-  currentModalClashImport=String(clashImportUri||'');
+function switchLinkTab(mode){
+  currentLinkTab=(mode==='stash')?'stash':'general';
+  renderLinkModal();
+}
+function openLinkModal(generalLink, generalClashImportUri='', stashLink=''){
+  currentModalLinks={
+    general:String(generalLink||''),
+    stash:String(stashLink||generalLink||'')
+  };
+  currentModalClashImports={
+    general:String(generalClashImportUri||''),
+    stash:''
+  };
+  currentLinkTab='general';
   renderLinkModal();
   q('#linkModal')?.classList.remove('hide');
 }
 function closeLinkModal(){ q('#linkModal')?.classList.add('hide'); }
 async function copyFromModal(){
-  const txt=String(currentModalLink||'').trim();
+  const mode=currentLinkTab==='stash'?'stash':'general';
+  const txt=String(currentModalLinks[mode]||'').trim();
   if(!txt) return toast('没有可复制的链接','err');
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -379,7 +398,9 @@ async function copyFromModal(){
   }
 }
 function openClashImportFromModal(){
-  const uri=String(currentModalClashImport||'');
+  const mode=currentLinkTab==='stash'?'stash':'general';
+  if(mode==='stash'){ toast('Stash 版无需 Clash 导入，请使用复制链接或扫码','err'); return; }
+  const uri=String(currentModalClashImports[mode]||'');
   if(!uri){ toast('当前链接不支持 Clash 导入','err'); return; }
   location.href=uri;
 }
@@ -424,13 +445,14 @@ function renderSubsUI(arr){
   for(const s of arr){
     const full=(s.full_url||(`${location.origin}${s.url}`));
     const clashUrl = full.endsWith('/clash') ? full : `${full}/clash`;
+    const stashUrl = full.endsWith('/stash') ? full : `${full}/stash`;
     const singboxUrl = full.endsWith('/singbox') ? full : `${full}/singbox`;
     const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-通用版')}`;
     const row=document.createElement('div');row.className='src-item';
     row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="copy-singbox">复制sing-box</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
-    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri);
-    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri);
+    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri, stashUrl);
+    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri, stashUrl);
     row.querySelector('[data-act="copy-singbox"]').onclick=()=>openSingboxModal(singboxUrl);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
