@@ -1856,6 +1856,13 @@ async function buildClashConfigByLinks(links = []) {
 
 
 
+
+function normalizeStashDnsYaml(yamlText) {
+  let y = String(yamlText || '');
+  y = y.replace(/\n  nameserver:\n(?:\s+- .*\n)+/m, `\n  nameserver:\n    - 223.5.5.5\n    - 119.29.29.29\n`);
+  return y;
+}
+
 async function buildStashConfigByLinks(links = []) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -1877,9 +1884,9 @@ async function buildStashConfigByLinks(links = []) {
   const marker = '\nproxies:';
   const idx = tpl.lastIndexOf(marker);
   if (idx >= 0) {
-    return tpl.slice(0, idx) + `\n${proxiesYaml}\n`;
+    return normalizeStashDnsYaml(tpl.slice(0, idx) + `\n${proxiesYaml}\n`);
   }
-  return tpl.trimEnd() + `\n\n${proxiesYaml}\n`;
+  return normalizeStashDnsYaml(tpl.trimEnd() + `\n\n${proxiesYaml}\n`);
 }
 
 function getSubByToken(token) {
