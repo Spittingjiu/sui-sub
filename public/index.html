@@ -411,19 +411,6 @@ async function copyAnyText(txt, okMsg='已复制链接'){
 }
 
 
-function openSingboxModal(link=''){
-  currentSingboxModalLink=String(link||'').trim();
-  const textEl=q('#singboxText');
-  const qrEl=q('#singboxQr');
-  if(textEl) textEl.value=currentSingboxModalLink;
-  if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(currentSingboxModalLink)}`;
-  q('#singboxModal')?.classList.remove('hide');
-}
-function closeSingboxModal(){ q('#singboxModal')?.classList.add('hide'); }
-async function copySingboxModalLink(){
-  await copyAnyText(currentSingboxModalLink,'已复制 sing-box 链接');
-}
-
 function renderSubsUI(arr){
   const box=q('#subs');
   if(!arr.length){box.innerHTML='<div class="muted">暂无</div>';return;}
