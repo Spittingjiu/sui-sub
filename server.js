@@ -17,6 +17,8 @@ const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-cha
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
+const CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/clash-template.json';
+const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
 
 
 const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
@@ -1182,6 +1184,53 @@ function toYaml(v, indent = 0) {
   return `${sp}${stringifyYamlScalar(v)}`;
 }
 
+function isPlainObject(x) {
+  return x && typeof x === 'object' && !Array.isArray(x);
+}
+
+function deepMerge(base, override) {
+  if (!isPlainObject(base) || !isPlainObject(override)) return override;
+  const out = { ...base };
+  for (const [k, v] of Object.entries(override)) {
+    if (isPlainObject(v) && isPlainObject(out[k])) {
+      out[k] = deepMerge(out[k], v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+let clashTemplateCache = { at: 0, data: null };
+
+async function loadRemoteClashTemplate() {
+  try {
+    const nowTs = Date.now();
+    if (clashTemplateCache.data && (nowTs - clashTemplateCache.at) < CLASH_TEMPLATE_CACHE_MS) {
+      return clashTemplateCache.data;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(CLASH_TEMPLATE_URL, {
+      headers: { 'accept': 'application/json,text/plain,*/*' },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) throw new Error(`http ${resp.status}`);
+    const text = await resp.text();
+    const obj = JSON.parse(text);
+    if (!isPlainObject(obj)) throw new Error('template is not object');
+
+    clashTemplateCache = { at: nowTs, data: obj };
+    return obj;
+  } catch (e) {
+    console.warn('[clash-template] use built-in fallback:', e?.message || e);
+    return null;
+  }
+}
+
 async function buildClashConfigByLinks(links = []) {
   const uniq = uniqNameFactory();
   const proxies = [];
@@ -1198,7 +1247,7 @@ async function buildClashConfigByLinks(links = []) {
   const ytPool = [...new Set([...usNodes, '手动选择', '独立选择', '自动选择'])].filter(Boolean);
   const dedicatedPool = [...nodePool, '手动选择', '独立选择', '自动选择'];
 
-  const cfg = {
+  const builtInBase = {
     'mixed-port': 7890,
     'allow-lan': false,
     mode: 'rule',
@@ -1274,6 +1323,47 @@ async function buildClashConfigByLinks(links = []) {
         'geosite:apple'
       ]
     },
+    'rule-providers': {
+      reject: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Advertising/Advertising_Classical.yaml', path: './ruleset/blackmatrix7/Advertising_Classical.yaml', interval: 86400 },
+      direct: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_Classical.yaml', path: './ruleset/blackmatrix7/ChinaMax_Classical.yaml', interval: 86400 },
+      proxy: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Global/Global_Classical.yaml', path: './ruleset/blackmatrix7/Global_Classical.yaml', interval: 86400 },
+      openai: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/OpenAI/OpenAI.yaml', path: './ruleset/blackmatrix7/OpenAI.yaml', interval: 86400 },
+      anthropic: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Anthropic/Anthropic.yaml', path: './ruleset/blackmatrix7/Anthropic.yaml', interval: 86400 },
+      youtube: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml', path: './ruleset/blackmatrix7/YouTube.yaml', interval: 86400 },
+      telegram: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml', path: './ruleset/blackmatrix7/Telegram.yaml', interval: 86400 },
+      google: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml', path: './ruleset/blackmatrix7/Google.yaml', interval: 86400 },
+      my_whitelist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.yaml', path: './ruleset/custom/my_whitelist.yaml', interval: 86400 },
+      private: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Lan/Lan.yaml', path: './ruleset/blackmatrix7/Lan.yaml', interval: 86400 },
+      cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
+      lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
+    },
+    rules: [
+      'DOMAIN,anyrouter.top,节点选择',
+      'DOMAIN,www.anyrouter.top,节点选择',
+      'DOMAIN-SUFFIX,anyrouter.top,节点选择',
+      'RULE-SET,my_whitelist,DIRECT',
+      'RULE-SET,reject,REJECT',
+      'RULE-SET,private,DIRECT',
+      'RULE-SET,lancidr,DIRECT,no-resolve',
+      'RULE-SET,openai,AI分流',
+      'RULE-SET,anthropic,AI分流',
+      'DOMAIN-SUFFIX,gemini.google.com,AI分流',
+      'DOMAIN-SUFFIX,generativelanguage.googleapis.com,AI分流',
+      'DOMAIN-SUFFIX,ai.google.dev,AI分流',
+      'DOMAIN-SUFFIX,makersuite.google.com,AI分流',
+      'RULE-SET,youtube,YouTube分流',
+      'RULE-SET,telegram,Telegram分流',
+      'RULE-SET,google,Google',
+      'RULE-SET,proxy,节点选择',
+      'GEOSITE,geolocation-!cn,节点选择',
+      'RULE-SET,direct,DIRECT',
+      'GEOSITE,cn,DIRECT',
+      'RULE-SET,cncidr,DIRECT,no-resolve',
+      'MATCH,节点选择'
+    ]
+  };
+
+  const dynamicPart = {
     proxies,
     'proxy-groups': [
       {
@@ -1319,46 +1409,13 @@ async function buildClashConfigByLinks(links = []) {
         interval: 600,
         tolerance: 100
       }
-    ],
-    'rule-providers': {
-      reject: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Advertising/Advertising_Classical.yaml', path: './ruleset/blackmatrix7/Advertising_Classical.yaml', interval: 86400 },
-      direct: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_Classical.yaml', path: './ruleset/blackmatrix7/ChinaMax_Classical.yaml', interval: 86400 },
-      proxy: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Global/Global_Classical.yaml', path: './ruleset/blackmatrix7/Global_Classical.yaml', interval: 86400 },
-      openai: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/OpenAI/OpenAI.yaml', path: './ruleset/blackmatrix7/OpenAI.yaml', interval: 86400 },
-      anthropic: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Anthropic/Anthropic.yaml', path: './ruleset/blackmatrix7/Anthropic.yaml', interval: 86400 },
-      youtube: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml', path: './ruleset/blackmatrix7/YouTube.yaml', interval: 86400 },
-      telegram: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml', path: './ruleset/blackmatrix7/Telegram.yaml', interval: 86400 },
-      google: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml', path: './ruleset/blackmatrix7/Google.yaml', interval: 86400 },
-      my_whitelist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.yaml', path: './ruleset/custom/my_whitelist.yaml', interval: 86400 },
-      private: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Lan/Lan.yaml', path: './ruleset/blackmatrix7/Lan.yaml', interval: 86400 },
-      cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
-      lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
-    },
-    rules: [
-      'DOMAIN,anyrouter.top,节点选择',
-      'DOMAIN,www.anyrouter.top,节点选择',
-      'DOMAIN-SUFFIX,anyrouter.top,节点选择',
-      'RULE-SET,my_whitelist,DIRECT',
-      'RULE-SET,reject,REJECT',
-      'RULE-SET,private,DIRECT',
-      'RULE-SET,lancidr,DIRECT,no-resolve',
-      'RULE-SET,openai,AI分流',
-      'RULE-SET,anthropic,AI分流',
-      'DOMAIN-SUFFIX,gemini.google.com,AI分流',
-      'DOMAIN-SUFFIX,generativelanguage.googleapis.com,AI分流',
-      'DOMAIN-SUFFIX,ai.google.dev,AI分流',
-      'DOMAIN-SUFFIX,makersuite.google.com,AI分流',
-      'RULE-SET,youtube,YouTube分流',
-      'RULE-SET,telegram,Telegram分流',
-      'RULE-SET,google,Google',
-      'RULE-SET,proxy,节点选择',
-      'GEOSITE,geolocation-!cn,节点选择',
-      'RULE-SET,direct,DIRECT',
-      'GEOSITE,cn,DIRECT',
-      'RULE-SET,cncidr,DIRECT,no-resolve',
-      'MATCH,节点选择'
     ]
   };
+
+  const remoteBase = await loadRemoteClashTemplate();
+  const mergedBase = remoteBase ? deepMerge(builtInBase, remoteBase) : builtInBase;
+  const cfg = { ...mergedBase, ...dynamicPart };
+
 
   return toYaml(cfg) + '\n';
 }
