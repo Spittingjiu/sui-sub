@@ -20,11 +20,15 @@
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .muted{color:var(--muted);font-size:13px}
     .ok{color:var(--ok)} .err{color:var(--err)} .hide{display:none}
-    .pill{padding:3px 8px;border-radius:999px;background:#1d2850;display:inline-block;font-size:12px}
-    table{width:100%;border-collapse:collapse;min-width:720px}
-    td,th{border-bottom:1px solid #243055;padding:9px 8px;text-align:left;font-size:13px}
-    .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6}
-    .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:#1d2850;font-size:12px}
+    .pill{padding:3px 8px;border-radius:999px;background:#1d2850;color:#eef2ff;display:inline-block;font-size:12px}
+    table{width:100%;border-collapse:collapse;min-width:560px}
+    td,th{border-bottom:1px solid #243055;padding:4px 2px;text-align:left;font-size:13px}
+    #nodes th:nth-child(1),#nodes td:nth-child(1){width:52px;padding-right:2px}
+    #nodes th:nth-child(2),#nodes td:nth-child(2){width:96px;padding-left:2px;padding-right:2px}
+    #nodes th:nth-child(3),#nodes td:nth-child(3){padding-left:2px;padding-right:1em;width:auto;white-space:nowrap}
+    #nodes th:nth-child(4),#nodes td:nth-child(4){width:68px;padding-left:1em;padding-right:1px;white-space:nowrap;text-align:left}
+    .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6;color:#fff}
+    .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:#1d2850;color:#eef2ff;font-size:12px}
     .sel-list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
     .src-item{padding:12px;border:1px solid var(--src-line);border-radius:12px;background:var(--src-bg);margin:8px 0}
     .src-item .row{row-gap:10px}
@@ -38,6 +42,9 @@
     #loginCard{width:min(460px,94vw);padding:20px}
 
     body.theme-light{--bg:#f2f6ff;--bg2:#ffffff;--card:#ffffff;--line:#d8e2ff;--line2:#c5d4ff;--txt:#1b2440;--muted:rgba(27,36,64,.68);--ok:#16a34a;--err:#dc2626;--card-grad1:#ffffff;--card-grad2:#f7faff;--src-bg:#f8fbff;--src-line:#d5e1ff;--modal-grad1:#ffffff;--modal-grad2:#f7faff}
+    body.theme-light .pill{background:#e8efff;color:#1b2440;border:1px solid #c8d7ff}
+    body.theme-light .chip{background:#e8efff;color:#1b2440;border:1px solid #c8d7ff}
+    body.theme-light .tab-on{color:#fff}
 
     @media (max-width:860px){
       .grid{grid-template-columns:1fr}
@@ -68,7 +75,10 @@
         </div>
         <h1 style="margin:0">🚀 sub订阅分发平台</h1>
       </div>
-      <button onclick="logout()">退出登录</button>
+      <div class="row" style="gap:8px">
+        <button id="themeBtn" onclick="toggleTheme()">浅色主题</button>
+        <button onclick="logout()">退出登录</button>
+      </div>
     </div>
 
     <div id="tab-home">
@@ -148,6 +158,10 @@
   <div id="linkModal" class="modal-mask hide">
     <div class="modal-box">
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">订阅二维码</h3><button onclick="closeLinkModal()">关闭</button></div>
+      <div class="row" style="gap:8px;margin:8px 0 2px">
+        <button id="linkTabGeneral" class="tab-on" onclick="switchLinkTab('general')">通用版</button>
+        <button id="linkTabGame" onclick="switchLinkTab('game')">游戏版</button>
+      </div>
       <img id="linkQr" alt="订阅二维码" />
       <input id="linkText" readonly />
       <div class="row" style="margin-top:10px;justify-content:flex-end">
@@ -160,18 +174,34 @@
 <script>
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
-let currentModalLink='';
-let currentModalClashImportUri='';
+let currentModalLinks={general:'',game:''};
+let currentModalClashImports={general:'',game:''};
+let currentLinkTab='general';
 let theme='dark';
 const selectedNodeIds=new Set();
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const isLocalSource=(s)=>String(s?.source_type||'sui_api')==='local' || String(s?.panel_url||'')==='local://manual';
+const orderedSources=()=>[...sources].sort((a,b)=>{
+  const al=isLocalSource(a), bl=isLocalSource(b);
+  if(al!==bl) return al?-1:1;
+  return Number(a.id||0)-Number(b.id||0);
+});
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
 async function api(url,opt={}){const r=await fetch(url,{headers:{'content-type':'application/json'},...opt});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
 function setAuthMode(v){document.body.classList.toggle('auth-mode',v)}
+function updateThemeButton(){
+  const btn=q('#themeBtn');
+  if(!btn) return;
+  btn.textContent = theme === 'light' ? '深色主题' : '浅色主题';
+}
 function applyTheme(next='dark'){
   theme = (next === 'light') ? 'light' : 'dark';
   document.body.classList.toggle('theme-light', theme === 'light');
+  updateThemeButton();
   try{ localStorage.setItem('sui_sub_theme', theme); }catch(_e){}
+}
+function toggleTheme(){
+  applyTheme(theme === 'light' ? 'dark' : 'light');
 }
 
 function switchTab(tab){
@@ -195,18 +225,22 @@ async function editSourceName(id){
 }
 async function deleteSource(id){if(!confirm('确认删除该源？'))return;await api('/api/sources/'+id,{method:'DELETE'});await refreshAll();}
 
-function sourceSyncText(s){if(!s.last_sync_at) return '未同步'; return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;}
+function sourceSyncText(s){
+  if(isLocalSource(s)) return '';
+  if(!s.last_sync_at) return '未同步';
+  return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;
+}
 function renderSourcesUI(){
   const box=q('#sources');
   if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter(); return;}
-  box.innerHTML=sources.map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row"><span class="pill">${sourceSyncText(s)}</span><button onclick="focusSource(${s.id})">看节点</button><button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button></div></div></div>`).join('');
+  box.innerHTML=orderedSources().map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`).join('');
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
 
 async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();}
 function getLocalSourceId(){
-  const src=sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
+  const src=sources.find(s=>isLocalSource(s));
   return src?String(src.id):'';
 }
 function setLocalAddVisible(){
@@ -270,18 +304,37 @@ async function deleteLocalNode(id){
   await loadNodes();
 }
 
-function openLinkModal(link, clashImportUri=''){
-  currentModalLink=String(link||'');
-  currentModalClashImportUri=String(clashImportUri||'');
+function renderLinkModalByTab(){
+  const mode=currentLinkTab==='game'?'game':'general';
+  const link=String(currentModalLinks[mode]||'');
   const textEl=q('#linkText');
   const qrEl=q('#linkQr');
-  if(textEl) textEl.value=currentModalLink;
-  if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(currentModalLink)}`;
+  if(textEl) textEl.value=link;
+  if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(link)}`;
+  q('#linkTabGeneral')?.classList.toggle('tab-on',mode==='general');
+  q('#linkTabGame')?.classList.toggle('tab-on',mode==='game');
+}
+function switchLinkTab(mode){
+  currentLinkTab=(mode==='game')?'game':'general';
+  renderLinkModalByTab();
+}
+function openLinkModal(generalLink, generalClashImportUri='', gameLink='', gameClashImportUri=''){
+  currentModalLinks={
+    general:String(generalLink||''),
+    game:String(gameLink||generalLink||'')
+  };
+  currentModalClashImports={
+    general:String(generalClashImportUri||''),
+    game:String(gameClashImportUri||generalClashImportUri||'')
+  };
+  currentLinkTab='general';
+  renderLinkModalByTab();
   q('#linkModal')?.classList.remove('hide');
 }
 function closeLinkModal(){ q('#linkModal')?.classList.add('hide'); }
 async function copyFromModal(){
-  const txt=String(currentModalLink||'').trim();
+  const mode=currentLinkTab==='game'?'game':'general';
+  const txt=String(currentModalLinks[mode]||'').trim();
   if(!txt) return toast('没有可复制的链接','err');
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -302,8 +355,10 @@ async function copyFromModal(){
   }
 }
 function openClashImportFromModal(){
-  if(!currentModalClashImportUri){ toast('当前链接不支持 Clash 导入','err'); return; }
-  location.href=currentModalClashImportUri;
+  const mode=currentLinkTab==='game'?'game':'general';
+  const uri=String(currentModalClashImports[mode]||'');
+  if(!uri){ toast('当前链接不支持 Clash 导入','err'); return; }
+  location.href=uri;
 }
 
 function renderSubsUI(arr){
@@ -313,12 +368,14 @@ function renderSubsUI(arr){
   for(const s of arr){
     const full=(s.full_url||(`${location.origin}${s.url}`));
     const clashUrl = full.endsWith('/clash') ? full : `${full}/clash`;
-    const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent(s.name||'sui-sub')}`;
+    const clashGameUrl = full.endsWith('/clash-game') ? full : `${full}/clash-game`;
+    const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-通用版')}`;
+    const clashGameImportUri=`clash://install-config?url=${encodeURIComponent(clashGameUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-游戏版')}`;
     const row=document.createElement('div');row.className='src-item';
     row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
-    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri);
-    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri);
+    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri, full, clashGameImportUri);
+    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri, clashGameUrl, clashGameImportUri);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);
@@ -330,7 +387,7 @@ async function deleteSub(id){if(!confirm('确认删除此订阅？'))return;awai
 function renderModalSourceFilter(){
   const sel=q('#modalSourceFilter'); if(!sel) return;
   const old=sel.value||'all';
-  sel.innerHTML='<option value="all">全部源</option>'+sources.map(s=>`<option value="${s.id}">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}</option>`).join('');
+  sel.innerHTML='<option value="all">全部源</option>'+orderedSources().map(s=>`<option value="${s.id}">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}</option>`).join('');
   sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
   sel.onchange=async()=>{
     const sid=sel.value||'all';

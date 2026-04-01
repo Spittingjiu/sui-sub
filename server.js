@@ -1146,6 +1146,7 @@ function stringifyYamlScalar(v) {
   if (v === null || v === undefined) return 'null';
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   const s = String(v);
+  if (/^geosite:/i.test(s)) return JSON.stringify(s);
   if (/^[a-zA-Z0-9_.:@\/-]+$/.test(s)) return s;
   return JSON.stringify(s);
 }
@@ -1228,14 +1229,17 @@ async function buildClashConfigByLinks(links = []) {
         '*.pool.ntp.org',
         '+.qq.com',
         '+.wechat.com',
-        '+.weixin.qq.com'
+        '+.weixin.qq.com',
+        'geosite:cn',
+        'geosite:apple',
+        'geosite:microsoft@cn'
       ],
       'default-nameserver': ['1.1.1.1', '8.8.8.8', '9.9.9.9'],
       'nameserver-policy': {
         'geosite:cn': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
         'geosite:geolocation-!cn': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
       },
-      nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
+      nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver-policy': {
         'geosite:cn': ['223.5.5.5', '119.29.29.29'],
@@ -1244,7 +1248,7 @@ async function buildClashConfigByLinks(links = []) {
       },
       'direct-nameserver': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
       'direct-nameserver-follow-policy': true,
-      fallback: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query', 'https://dns.quad9.net/dns-query'],
+      fallback: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'fallback-filter': {
         geoip: true,
         'geoip-code': 'CN',
@@ -1265,7 +1269,9 @@ async function buildClashConfigByLinks(links = []) {
         'time.android.com',
         '+.msftconnecttest.com',
         '+.msftncsi.com',
-        '+.googlecast.com'
+        '+.googlecast.com',
+        'geosite:cn',
+        'geosite:apple'
       ]
     },
     proxies,
@@ -1323,20 +1329,21 @@ async function buildClashConfigByLinks(links = []) {
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
     },
     rules: [
+      'DOMAIN,anyrouter.top,节点选择',
+      'DOMAIN,www.anyrouter.top,节点选择',
+      'DOMAIN-SUFFIX,anyrouter.top,节点选择',
       'RULE-SET,reject,REJECT',
       'RULE-SET,private,DIRECT',
       'RULE-SET,lancidr,DIRECT,no-resolve',
       'RULE-SET,openai,AI分流',
       'RULE-SET,anthropic,AI分流',
+      'DOMAIN-SUFFIX,gemini.google.com,AI分流',
+      'DOMAIN-SUFFIX,generativelanguage.googleapis.com,AI分流',
+      'DOMAIN-SUFFIX,ai.google.dev,AI分流',
+      'DOMAIN-SUFFIX,makersuite.google.com,AI分流',
       'RULE-SET,youtube,YouTube分流',
       'RULE-SET,telegram,Telegram分流',
       'RULE-SET,google,Google',
-      'GEOSITE,google-play,Google',
-      'DOMAIN-KEYWORD,googleplay,Google',
-      'DOMAIN-SUFFIX,googleapis.cn,Google',
-      'DOMAIN-SUFFIX,xn--ngstr-lra8j.com,Google',
-      'DOMAIN-SUFFIX,gvt1.com,Google',
-      'DOMAIN-SUFFIX,gvt2.com,Google',
       'RULE-SET,proxy,节点选择',
       'GEOSITE,geolocation-!cn,节点选择',
       'RULE-SET,direct,DIRECT',
@@ -1347,6 +1354,19 @@ async function buildClashConfigByLinks(links = []) {
   };
 
   return toYaml(cfg) + '\n';
+}
+
+async function buildClashGameConfigByLinks(links = []) {
+  const yaml = await buildClashConfigByLinks(links);
+  const lines = String(yaml || '').split('\n');
+  const out = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (t === 'reject:' || t.startsWith('RULE-SET,reject,REJECT')) continue;
+    if (t.includes(',REJECT"')) continue;
+    out.push(line);
+  }
+  return out.join('\n');
 }
 
 
@@ -1394,6 +1414,22 @@ app.get('/api/sub/:token/clash', async (req, res) => {
   const links = getSubNodeLinksByToken(req.params.token);
   if (links === null) return res.status(404).send('not found');
   const yaml = await buildClashConfigByLinks(links);
+  res.setHeader('content-type', 'text/yaml; charset=utf-8');
+  res.send(yaml);
+});
+
+app.get('/sub/:token/clash-game', async (req, res) => {
+  const links = getSubNodeLinksByToken(req.params.token);
+  if (links === null) return res.status(404).send('not found');
+  const yaml = await buildClashGameConfigByLinks(links);
+  res.setHeader('content-type', 'text/yaml; charset=utf-8');
+  res.send(yaml);
+});
+
+app.get('/api/sub/:token/clash-game', async (req, res) => {
+  const links = getSubNodeLinksByToken(req.params.token);
+  if (links === null) return res.status(404).send('not found');
+  const yaml = await buildClashGameConfigByLinks(links);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
