@@ -1872,11 +1872,11 @@ async function buildStashConfigByLinks(links = []) {
   }
 
   const proxiesYaml = toYaml({ proxies }, 0);
-  if (/\nproxies:\s*\[[^\]]*\]\s*$/m.test(tpl)) {
-    return tpl.replace(/\nproxies:\s*\[[^\]]*\]\s*$/m, `\n${proxiesYaml}`) + '\n';
-  }
-  if (/\nproxies:\s*\n/m.test(tpl)) {
-    return tpl.replace(/\nproxies:\s*\n[\s\S]*$/m, `\n${proxiesYaml}\n`);
+  // 只替换最末尾顶层 proxies 块，避免误伤 proxy-groups 内部的 proxies: []
+  const marker = '\nproxies:';
+  const idx = tpl.lastIndexOf(marker);
+  if (idx >= 0) {
+    return tpl.slice(0, idx) + `\n${proxiesYaml}\n`;
   }
   return tpl.trimEnd() + `\n\n${proxiesYaml}\n`;
 }
