@@ -171,8 +171,7 @@
     <div class="modal-box">
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">订阅二维码</h3><button onclick="closeLinkModal()">关闭</button></div>
       <div class="row" style="gap:8px;margin:8px 0 2px">
-        <button id="linkTabGeneral" class="tab-on" onclick="switchLinkTab('general')">通用版</button>
-        <button id="linkTabGame" onclick="switchLinkTab('game')">游戏版</button>
+        <button id="linkTabGeneral" class="tab-on">通用版</button>
       </div>
       <img id="linkQr" alt="订阅二维码" />
       <input id="linkText" readonly />
@@ -186,9 +185,8 @@
 <script>
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
-let currentModalLinks={general:'',game:''};
-let currentModalClashImports={general:'',game:''};
-let currentLinkTab='general';
+let currentModalLink='';
+let currentModalClashImport='';
 let theme='dark';
 let activeTab='home';
 const selectedNodeIds=new Set();
@@ -323,37 +321,23 @@ async function deleteLocalNode(id){
   await loadNodes();
 }
 
-function renderLinkModalByTab(){
-  const mode=currentLinkTab==='game'?'game':'general';
-  const link=String(currentModalLinks[mode]||'');
+function renderLinkModal(){
+  const link=String(currentModalLink||'');
   const textEl=q('#linkText');
   const qrEl=q('#linkQr');
   if(textEl) textEl.value=link;
   if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(link)}`;
-  q('#linkTabGeneral')?.classList.toggle('tab-on',mode==='general');
-  q('#linkTabGame')?.classList.toggle('tab-on',mode==='game');
+  q('#linkTabGeneral')?.classList.add('tab-on');
 }
-function switchLinkTab(mode){
-  currentLinkTab=(mode==='game')?'game':'general';
-  renderLinkModalByTab();
-}
-function openLinkModal(generalLink, generalClashImportUri='', gameLink='', gameClashImportUri=''){
-  currentModalLinks={
-    general:String(generalLink||''),
-    game:String(gameLink||generalLink||'')
-  };
-  currentModalClashImports={
-    general:String(generalClashImportUri||''),
-    game:String(gameClashImportUri||generalClashImportUri||'')
-  };
-  currentLinkTab='general';
-  renderLinkModalByTab();
+function openLinkModal(link, clashImportUri=''){
+  currentModalLink=String(link||'');
+  currentModalClashImport=String(clashImportUri||'');
+  renderLinkModal();
   q('#linkModal')?.classList.remove('hide');
 }
 function closeLinkModal(){ q('#linkModal')?.classList.add('hide'); }
 async function copyFromModal(){
-  const mode=currentLinkTab==='game'?'game':'general';
-  const txt=String(currentModalLinks[mode]||'').trim();
+  const txt=String(currentModalLink||'').trim();
   if(!txt) return toast('没有可复制的链接','err');
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -374,8 +358,7 @@ async function copyFromModal(){
   }
 }
 function openClashImportFromModal(){
-  const mode=currentLinkTab==='game'?'game':'general';
-  const uri=String(currentModalClashImports[mode]||'');
+  const uri=String(currentModalClashImport||'');
   if(!uri){ toast('当前链接不支持 Clash 导入','err'); return; }
   location.href=uri;
 }
@@ -387,14 +370,12 @@ function renderSubsUI(arr){
   for(const s of arr){
     const full=(s.full_url||(`${location.origin}${s.url}`));
     const clashUrl = full.endsWith('/clash') ? full : `${full}/clash`;
-    const clashGameUrl = full.endsWith('/clash-game') ? full : `${full}/clash-game`;
     const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-通用版')}`;
-    const clashGameImportUri=`clash://install-config?url=${encodeURIComponent(clashGameUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-游戏版')}`;
     const row=document.createElement('div');row.className='src-item';
     row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
-    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri, full, clashGameImportUri);
-    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri, clashGameUrl, clashGameImportUri);
+    row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri);
+    row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);

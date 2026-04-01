@@ -1427,49 +1427,6 @@ async function buildClashConfigByLinks(links = []) {
   return toYaml(cfg) + '\n';
 }
 
-async function buildClashGameConfigByLinks(links = []) {
-  const yaml = await buildClashConfigByLinks(links);
-  const lines = String(yaml || '').split('\n');
-  const out = [];
-
-  let inRuleProviders = false;
-  let skippingRejectProvider = false;
-
-  for (const line of lines) {
-    const t = line.trim();
-    const indent = line.match(/^\s*/)?.[0]?.length || 0;
-
-    if (!inRuleProviders && t === 'rule-providers:') {
-      inRuleProviders = true;
-      out.push(line);
-      continue;
-    }
-
-    if (inRuleProviders) {
-      if (indent === 0 && t.endsWith(':') && t !== 'rule-providers:') {
-        inRuleProviders = false;
-        skippingRejectProvider = false;
-      } else {
-        if (!skippingRejectProvider && indent === 2 && t === 'reject:') {
-          skippingRejectProvider = true;
-          continue;
-        }
-        if (skippingRejectProvider) {
-          if (indent > 2) continue;
-          skippingRejectProvider = false;
-        }
-      }
-    }
-
-    if (t.startsWith('- "RULE-SET,reject,REJECT"')) continue;
-    if (t.includes(',REJECT"')) continue;
-
-    out.push(line);
-  }
-
-  return out.join('\n');
-}
-
 
 function getSubByToken(token) {
   return db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token) || null;
@@ -1581,25 +1538,6 @@ app.get('/api/sub/:token/clash', async (req, res) => {
   res.send(yaml);
 });
 
-app.get('/sub/:token/clash-game', async (req, res) => {
-  const sub = getSubByToken(req.params.token);
-  if (!sub) return res.status(404).send('not found');
-  const links = getSubNodeLinksBySub(sub);
-  recordSubscriptionLog(req, sub, 'clash-game');
-  const yaml = await buildClashGameConfigByLinks(links || []);
-  res.setHeader('content-type', 'text/yaml; charset=utf-8');
-  res.send(yaml);
-});
-
-app.get('/api/sub/:token/clash-game', async (req, res) => {
-  const sub = getSubByToken(req.params.token);
-  if (!sub) return res.status(404).send('not found');
-  const links = getSubNodeLinksBySub(sub);
-  recordSubscriptionLog(req, sub, 'clash-game-api');
-  const yaml = await buildClashGameConfigByLinks(links || []);
-  res.setHeader('content-type', 'text/yaml; charset=utf-8');
-  res.send(yaml);
-});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
