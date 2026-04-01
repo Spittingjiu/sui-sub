@@ -32,3 +32,9 @@
 ## 本轮验证结论
 - 启动级校验通过（docker: `ghcr.io/sagernet/sing-box:latest check -c /cfg.json`）。
 - 为兼容 sing-box >=1.12，暂时跳过了 geosite 旧字段直转（后续可补新规则集映射）。
+
+
+## 第三阶段（geosite 新规则集映射）
+- 已将 Clash 的 `GEOSITE,xxx,...` 转换为 sing-box `rule_set` 引用（`geosite-xxx`）。
+- geosite 规则集来源：`https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/<name>.srs`。
+- 目前已验证 `cn` 与 `geolocation-!cn` 映射有效，且容器 `check` 通过。

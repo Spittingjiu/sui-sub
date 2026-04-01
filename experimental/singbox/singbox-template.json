@@ -20,6 +20,12 @@
     ],
     "rules": [
       {
+        "rule_set": [
+          "geosite-cn"
+        ],
+        "server": "dns-direct"
+      },
+      {
         "server": "dns-remote"
       }
     ]
@@ -201,6 +207,20 @@
         "format": "source",
         "url": "https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt",
         "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-geolocation-!cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs",
+        "update_interval": "1d"
       }
     ],
     "rules": [
@@ -277,7 +297,21 @@
       {
         "action": "route",
         "rule_set": [
+          "geosite-geolocation-!cn"
+        ],
+        "outbound": "节点选择"
+      },
+      {
+        "action": "route",
+        "rule_set": [
           "direct"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "geosite-cn"
         ],
         "outbound": "direct"
       },

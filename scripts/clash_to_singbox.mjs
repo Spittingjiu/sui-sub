@@ -9,6 +9,14 @@ function readJSON(path) {
   return JSON.parse(fs.readFileSync(path, 'utf8'));
 }
 
+
+function mapGeositeToRuleSetTag(name) {
+  const n = String(name || '').trim();
+  if (!n) return null;
+  // use custom remote rule-set tags to avoid deprecated geosite field
+  return `geosite-${n}`;
+}
+
 function mapOutboundTarget(t) {
   const x = String(t || '').trim();
   if (!x) return '节点选择';
@@ -36,8 +44,9 @@ function parseRule(str) {
     return { action: 'route', domain_keyword: [p[1]], outbound: mapOutboundTarget(p[2]) };
   }
   if (k === 'GEOSITE' && p.length >= 3) {
-    // geosite removed in sing-box >=1.12, keep migration safe by skipping here
-    return null;
+    const tag = mapGeositeToRuleSetTag(p[1]);
+    if (!tag) return null;
+    return { action: 'route', rule_set: [tag], outbound: mapOutboundTarget(p[2]) };
   }
   if (k === 'IP-CIDR' && p.length >= 3) {
     return { action: 'route', ip_cidr: [p[1]], outbound: mapOutboundTarget(p[2]) };
@@ -98,7 +107,24 @@ function convert(template) {
     update_interval: '1d'
   })).filter(x => x.url);
 
+
+  const geositeNames = [];
+  for (const r of rules) {
+    const t = String(r || '').trim();
+    const p = t.split(',').map(x => x.trim());
+    if ((p[0] || '').toUpperCase() === 'GEOSITE' && p[1]) geositeNames.push(p[1]);
+  }
+  const geositeSet = [...new Set(geositeNames)];
+  const geositeRuleSets = geositeSet.map(name => ({
+    tag: mapGeositeToRuleSetTag(name),
+    type: 'remote',
+    format: 'binary',
+    url: `https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/${name}.srs`,
+    update_interval: '1d'
+  }));
+
   const routeRules = rules.map(parseRule).filter(Boolean);
+
 
   return {
     log: { level: 'info' },
@@ -108,6 +134,7 @@ function convert(template) {
         { type: 'udp', tag: 'dns-direct', server: '223.5.5.5', detour: 'direct' }
       ],
       rules: [
+        { rule_set: ['geosite-cn'], server: 'dns-direct' },
         { server: 'dns-remote' }
       ]
     },
@@ -118,7 +145,7 @@ function convert(template) {
     route: {
       auto_detect_interface: true,
       default_domain_resolver: 'dns-remote',
-      rule_set,
+      rule_set: [...rule_set, ...geositeRuleSets],
       rules: routeRules,
       final: '节点选择'
     },
