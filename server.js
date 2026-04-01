@@ -1358,59 +1358,107 @@ function ensureSingboxTemplateCompat(template) {
   dns.rules = [ownDomainRule, ...rest];
   if (!dns.rules.some(r => JSON.stringify(r) === JSON.stringify(geositeCnRule))) dns.rules.push(geositeCnRule);
 
-  // Rule-set conversion: Blackmatrix7 Clash YAML -> SingBox SRS binary
-  const rs = Array.isArray(route.rule_set) ? route.rule_set.map(x => ({ ...x })) : [];
-  for (const item of rs) {
-    const tag = String(item.tag || '').trim();
-    const mapped = mapClashRuleSetToSingbox(item.url || '');
-    if (mapped) {
-      item.url = mapped;
-      item.format = 'binary';
+  // Rule-set: unified MetaCubeX sources (single source of truth)
+  route.rule_set = [
+    {
+      tag: 'my_whitelist',
+      type: 'remote',
+      format: 'source',
+      url: 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'reject',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'private',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'lancidr',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'direct',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'geosite-cn',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'cncidr',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'openai',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'anthropic',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'youtube',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'telegram',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/telegram.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'google',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'proxy',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs',
+      download_detour: '节点选择'
+    },
+    {
+      tag: 'geosite-geolocation-!cn',
+      type: 'remote',
+      format: 'binary',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs',
+      download_detour: '节点选择'
     }
-
-    // 指定稳定源与格式
-    if (tag === 'openai') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'anthropic') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/anthropic.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'google') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'proxy') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'youtube') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'telegram') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/telegram.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'cncidr') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'lancidr') {
-      item.url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs';
-      item.format = 'binary';
-    }
-    if (tag === 'my_whitelist') {
-      item.url = 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.json';
-      item.format = 'source';
-    }
-
-    // 规则集下载走代理，防止直连 GitHub 超时
-    item.download_detour = '节点选择';
-    if (!item.update_interval) item.update_interval = '1d';
-  }
-  route.rule_set = rs;
+  ];
 
   t.dns = dns;
   t.route = route;
