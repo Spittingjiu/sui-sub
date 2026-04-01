@@ -190,6 +190,7 @@ let currentModalLinks={general:'',game:''};
 let currentModalClashImports={general:'',game:''};
 let currentLinkTab='general';
 let theme='dark';
+let activeTab='home';
 const selectedNodeIds=new Set();
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const isLocalSource=(s)=>String(s?.source_type||'sui_api')==='local' || String(s?.panel_url||'')==='local://manual';
@@ -217,6 +218,8 @@ function toggleTheme(){
 }
 
 function switchTab(tab){
+  activeTab=tab;
+  try{ localStorage.setItem('sui_sub_last_tab', tab); }catch(_e){}
   q('#tab-home').classList.toggle('hide',tab!=='home'); q('#tab-nodes').classList.toggle('hide',tab!=='nodes'); q('#tab-sui').classList.toggle('hide',tab!=='sui'); q('#tab-user').classList.toggle('hide',tab!=='user');
   q('#tabHomeBtn').classList.toggle('tab-on',tab==='home'); q('#tabNodeBtn').classList.toggle('tab-on',tab==='nodes'); q('#tabSuiBtn').classList.toggle('tab-on',tab==='sui'); q('#tabUserBtn').classList.toggle('tab-on',tab==='user');
   if(tab==='sui') loadSuiNodes(); if(tab==='user') loadAdminUser();
@@ -471,7 +474,12 @@ async function refreshAll(){
   applyBootstrap(b);
 }
 async function init(){
-  switchTab('home');
+  let initialTab='home';
+  try{
+    const saved=localStorage.getItem('sui_sub_last_tab')||'home';
+    if(['home','nodes','sui','user'].includes(saved)) initialTab=saved;
+  }catch(_e){}
+  switchTab(initialTab);
   await refreshAll();
   setInterval(async()=>{
     await api('/api/sources/sync-all',{method:'POST',body:'{}'}).catch(()=>{});
