@@ -151,6 +151,15 @@
         <div class="muted" style="margin-bottom:8px">自动刷新，最多保留最近 10 条：更新时间、来源IP、UA与设备识别</div>
         <div id="subLogs" class="log-box">暂无日志</div>
       </div>
+      <div class="card">
+        <h3>订阅健康检查</h3>
+        <div class="row" style="margin-bottom:8px">
+          <button onclick="runSubHealthCheck()">一键健康检查</button>
+          <span class="muted">检查 Clash/sing-box 生成是否正常，并探测规则源可达性</span>
+        </div>
+        <div id="subHealth" class="log-box">暂无检查结果</div>
+      </div>
+
     </div>
   </div>
 
@@ -474,6 +483,21 @@ async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该
 
 async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';q('#templateUrl').value=j.template_url||'';await loadSubLogs();}
 async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim(),template_url=(q('#templateUrl').value||'').trim();if(!username)return toast('用户名必填','err');if(password&&password.length<6)return toast('密码至少6位（或留空不改）','err');if(!/^https?:\/\//i.test(template_url))return toast('模板URL必须是 http/https 链接','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password,template_url})});q('#adminPass').value='';toast('用户设置已更新并生效','ok');}
+
+
+async function runSubHealthCheck(){
+  const box=q('#subHealth');
+  if(!box) return;
+  box.innerHTML='<div class="muted">检查中...</div>';
+  try{
+    const j=await api('/api/admin/sub-health');
+    const arr=j.items||[];
+    if(!arr.length){box.innerHTML='<div class="muted">暂无订阅</div>';return;}
+    box.innerHTML=`<div class="muted" style="margin-bottom:6px">检查时间：${new Date(j.checked_at).toLocaleString()}</div><div style="overflow-x:auto"><table><thead><tr><th>订阅</th><th>节点数</th><th>Clash</th><th>sing-box</th><th>规则源异常</th></tr></thead><tbody>${arr.map(x=>`<tr><td>${esc(x.name||'')}</td><td>${Number(x.node_count||0)}</td><td>${x.clash_ok?'<span class="ok">OK</span>':'<span class="err">FAIL</span>'}</td><td>${x.singbox_ok?'<span class="ok">OK</span>':'<span class="err">FAIL</span>'}</td><td>${(x.failed_rule_urls||[]).length?`<span class="err">${(x.failed_rule_urls||[]).length} 条</span><details><summary>展开</summary><div class="muted">${(x.failed_rule_urls||[]).map(esc).join('<br>')}</div></details>`:'<span class="ok">0</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+  }catch(e){
+    box.innerHTML=`<div class="err">检查失败：${esc(e.message)}</div>`;
+  }
+}
 
 async function loadSubLogs(){
   const box=q('#subLogs');

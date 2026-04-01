@@ -524,6 +524,63 @@ app.get('/api/admin/subscription-logs', (req, res) => {
   }
 });
 
+
+app.get('/api/admin/sub-health', async (_req, res) => {
+  try {
+    const subs = db.prepare('SELECT id,name,token FROM subscriptions ORDER BY id ASC').all();
+    const out = [];
+
+    for (const sub of subs) {
+      const links = getSubNodeLinksBySub(sub) || [];
+      const row = {
+        id: sub.id,
+        name: sub.name,
+        token: sub.token,
+        node_count: links.length,
+        clash_ok: false,
+        singbox_ok: false,
+        failed_rule_urls: []
+      };
+
+      try {
+        const clash = await buildClashConfigByLinks(links);
+        row.clash_ok = typeof clash === 'string' && clash.includes('proxies:');
+      } catch (_e) {
+        row.clash_ok = false;
+      }
+
+      try {
+        const sing = await buildSingboxConfigByLinks(links);
+        row.singbox_ok = !!(sing && Array.isArray(sing?.outbounds) && sing.outbounds.length > 0);
+
+        const urls = (sing?.route?.rule_set || []).map(x => String(x?.url || '')).filter(Boolean);
+        for (const u of urls) {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 5000);
+            let r = await fetch(u, { method: 'HEAD', signal: controller.signal });
+            if (!r.ok || r.status === 405) {
+              r = await fetch(u, { method: 'GET', signal: controller.signal });
+            }
+            clearTimeout(timer);
+            if (!r.ok) row.failed_rule_urls.push(`${u} (${r.status})`);
+          } catch (e) {
+            row.failed_rule_urls.push(`${u} (${e?.message || 'fetch failed'})`);
+          }
+        }
+      } catch (_e) {
+        row.singbox_ok = false;
+      }
+
+      out.push(row);
+    }
+
+    res.json({ ok: true, checked_at: now(), items: out });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/bridge/e2ee-meta', (_req, res) => {
   res.json({ ok: true, alg: 'x25519+aes-256-gcm', publicKey: E2EE.publicKeyB64 });
 });
