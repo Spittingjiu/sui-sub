@@ -1290,7 +1290,7 @@ async function buildClashConfigByLinks(links = []) {
         'geosite:apple',
         'geosite:microsoft@cn'
       ],
-      'default-nameserver': ['1.1.1.1', '8.8.8.8', '9.9.9.9'],
+      'default-nameserver': ['1.1.1.1', '8.8.8.8'],
       'nameserver-policy': {
         'geosite:cn': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
         'geosite:geolocation-!cn': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
