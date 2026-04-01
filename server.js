@@ -511,7 +511,7 @@ app.post('/api/admin/user', (req, res) => {
 
 app.get('/api/admin/subscription-logs', (req, res) => {
   try {
-    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+    const limit = Math.max(1, Math.min(10, Number(req.query.limit || 10)));
     const rows = db.prepare(`
       SELECT id, token, subscription_id, subscription_name, route_type, client_ip, user_agent, device_hint, created_at
       FROM subscription_logs
@@ -1577,6 +1577,7 @@ function recordSubscriptionLog(req, sub, routeType) {
       detectDeviceHint(ua),
       now()
     );
+    db.prepare(`DELETE FROM subscription_logs WHERE id NOT IN (SELECT id FROM subscription_logs ORDER BY id DESC LIMIT 10)`).run();
   } catch (_e) {}
 }
 
