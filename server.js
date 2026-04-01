@@ -1467,8 +1467,11 @@ async function buildClashConfigByLinks(links = []) {
 
 function normalizeStashDnsYaml(yamlText) {
   let y = String(yamlText || '');
-  // 仅固定 default-nameserver，其他 DNS 细项以模板为准
+  // 固定 default-nameserver
   y = y.replace(/\n\s*default-nameserver:\n(?:\s*- .*\n)+/m, `\n  default-nameserver:\n    - 223.5.5.5\n    - 119.29.29.29\n`);
+  // 兼容 Stash：nameserver-policy 值必须是 string，不能是数组
+  y = y.replace(/\n\s*nameserver-policy:\n(?:\s*'geosite:cn':\n\s*- .*\n\s*- .*\n\s*'geosite:geolocation-!cn':\n\s*- .*\n\s*- .*\n)/m,
+    `\n  nameserver-policy:\n    'geosite:cn': https://doh.pub/dns-query\n    'geosite:geolocation-!cn': https://1.1.1.1/dns-query\n`);
   return y;
 }
 
