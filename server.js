@@ -1190,6 +1190,156 @@ function parseLinkToClashProxy(raw, uniqueName) {
   return null;
 }
 
+
+function parseLinkToSingboxOutbound(raw, uniqueName) {
+  const link = String(raw || '').trim();
+  if (!link) return null;
+
+  if (link.startsWith('vmess://')) {
+    const payload = b64decodeUrlSafe(link.slice('vmess://'.length));
+    let j = {};
+    try { j = JSON.parse(payload || '{}'); } catch { return null; }
+    const tag = uniqueName(j.ps || decodeHashName(link) || `vmess-${j.add || 'node'}`);
+    const network = j.net || 'tcp';
+    const o = {
+      tag,
+      type: 'vmess',
+      server: j.add,
+      server_port: Number(j.port || 0),
+      uuid: j.id,
+      security: j.scy || 'auto'
+    };
+    if (!o.server || !o.server_port || !o.uuid) return null;
+    if (String(j.tls || '').toLowerCase() === 'tls') {
+      o.tls = { enabled: true, server_name: j.sni || undefined };
+    }
+    if (network === 'ws') {
+      o.transport = {
+        type: 'ws',
+        path: j.path || '/',
+        headers: { Host: j.host || j.add || '' }
+      };
+    }
+    return o;
+  }
+
+  if (link.startsWith('vless://')) {
+    let u; try { u = new URL(link); } catch { return null; }
+    const tag = uniqueName(decodeHashName(link) || `vless-${u.hostname}`);
+    const security = (u.searchParams.get('security') || 'none').toLowerCase();
+    const network = (u.searchParams.get('type') || 'tcp').toLowerCase();
+    const o = {
+      tag,
+      type: 'vless',
+      server: u.hostname,
+      server_port: Number(u.port || 0),
+      uuid: decodeURIComponent(u.username || '')
+    };
+    if (!o.server || !o.server_port || !o.uuid) return null;
+    const flow = u.searchParams.get('flow');
+    if (flow) o.flow = flow;
+    const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
+    if (security !== 'none') o.tls = { enabled: true, server_name: sni || undefined };
+    if (network === 'ws') {
+      o.transport = {
+        type: 'ws',
+        path: u.searchParams.get('path') || '/',
+        headers: { Host: u.searchParams.get('host') || sni || u.hostname }
+      };
+    }
+    return o;
+  }
+
+  if (link.startsWith('trojan://')) {
+    let u; try { u = new URL(link); } catch { return null; }
+    const tag = uniqueName(decodeHashName(link) || `trojan-${u.hostname}`);
+    const network = (u.searchParams.get('type') || 'tcp').toLowerCase();
+    const o = {
+      tag,
+      type: 'trojan',
+      server: u.hostname,
+      server_port: Number(u.port || 0),
+      password: decodeURIComponent(u.username || '')
+    };
+    if (!o.server || !o.server_port || !o.password) return null;
+    const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
+    o.tls = { enabled: true, server_name: sni || undefined };
+    if (network === 'ws') {
+      o.transport = {
+        type: 'ws',
+        path: u.searchParams.get('path') || '/',
+        headers: { Host: u.searchParams.get('host') || sni || u.hostname }
+      };
+    }
+    return o;
+  }
+
+  if (link.startsWith('ss://')) {
+    let u; try { u = new URL(link); } catch { return null; }
+    const tag = uniqueName(decodeHashName(link) || `ss-${u.hostname}`);
+    let method = '', password = '';
+    if (u.password) {
+      method = decodeURIComponent(u.username || '');
+      password = decodeURIComponent(u.password || '');
+    } else {
+      const decoded = b64decodeUrlSafe(decodeURIComponent(u.username || ''));
+      const i = decoded.indexOf(':');
+      if (i > 0) {
+        method = decoded.slice(0, i);
+        password = decoded.slice(i + 1);
+      }
+    }
+    const o = {
+      tag,
+      type: 'shadowsocks',
+      server: u.hostname,
+      server_port: Number(u.port || 0),
+      method,
+      password
+    };
+    if (!o.server || !o.server_port || !o.method || !o.password) return null;
+    return o;
+  }
+
+  return null;
+}
+
+async function buildSingboxConfigByLinks(links = []) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  const resp = await fetch('https://raw.githubusercontent.com/Spittingjiu/sui-sub/main/experimental/singbox/singbox-template.json', { signal: controller.signal });
+  clearTimeout(timer);
+  if (!resp.ok) throw new Error(`singbox template fetch failed: ${resp.status}`);
+  const template = JSON.parse(await resp.text());
+
+  const uniq = uniqNameFactory();
+  const nodes = [];
+  for (const raw of links) {
+    const o = parseLinkToSingboxOutbound(raw, uniq);
+    if (o) nodes.push(o);
+  }
+
+  const existing = Array.isArray(template.outbounds) ? template.outbounds : [];
+  const staticOutbounds = existing.filter(x => !['vmess','vless','trojan','shadowsocks'].includes(String(x?.type || '').toLowerCase()));
+  const nodeTags = nodes.map(n => n.tag);
+
+  const outbounds = [...staticOutbounds, ...nodes];
+
+  for (const ob of outbounds) {
+    const t = String(ob?.type || '');
+    if (t === 'selector' || t === 'urltest') {
+      const arr = Array.isArray(ob.outbounds) ? ob.outbounds : [];
+      const merged = [...new Set([...arr, ...nodeTags])];
+      ob.outbounds = merged.filter(x => !/^(DIRECT|REJECT|PASS)$/i.test(String(x)));
+      if (t === 'selector' && (!ob.default || !ob.outbounds.includes(ob.default))) {
+        ob.default = ob.outbounds[0] || 'direct';
+      }
+    }
+  }
+
+  return { ...template, outbounds };
+}
+
 function stringifyYamlScalar(v) {
   if (v === null || v === undefined) return 'null';
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
@@ -1516,6 +1666,35 @@ app.get('/api/sub/:token/plain', (req, res) => {
   recordSubscriptionLog(req, sub, 'plain');
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.send((links || []).join('\n'));
+});
+
+
+app.get('/sub/:token/singbox', async (req, res) => {
+  try {
+    const sub = getSubByToken(req.params.token);
+    if (!sub) return res.status(404).send('not found');
+    const links = getSubNodeLinksBySub(sub);
+    recordSubscriptionLog(req, sub, 'singbox');
+    const json = await buildSingboxConfigByLinks(links || []);
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.send(JSON.stringify(json, null, 2));
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/sub/:token/singbox', async (req, res) => {
+  try {
+    const sub = getSubByToken(req.params.token);
+    if (!sub) return res.status(404).send('not found');
+    const links = getSubNodeLinksBySub(sub);
+    recordSubscriptionLog(req, sub, 'singbox-api');
+    const json = await buildSingboxConfigByLinks(links || []);
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.send(JSON.stringify(json, null, 2));
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 app.get('/sub/:token/clash', async (req, res) => {
