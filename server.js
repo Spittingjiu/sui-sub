@@ -1392,9 +1392,6 @@ async function buildClashConfigByLinks(links = []) {
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
     },
     rules: [
-      'DOMAIN,anyrouter.top,节点选择',
-      'DOMAIN,www.anyrouter.top,节点选择',
-      'DOMAIN-SUFFIX,anyrouter.top,节点选择',
       'RULE-SET,my_whitelist,DIRECT',
       'RULE-SET,reject,REJECT',
       'RULE-SET,private,DIRECT',
