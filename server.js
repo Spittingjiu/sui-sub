@@ -1529,6 +1529,14 @@ function injectStashLeafGroupProxies(yamlText, proxies = []) {
         : [];
       const merged = Array.from(new Set([...base, ...nodeNames]));
       g.proxies = merged;
+
+      // 稳定性优先：Stash 上自动测速可能导致瞬时断线，统一改为手动 select
+      if (gname === '自动选择') {
+        g.type = 'select';
+        delete g.url;
+        delete g.interval;
+        delete g.tolerance;
+      }
     }
 
     cfg['proxy-groups'] = groups;
