@@ -188,7 +188,7 @@
       <input id="linkText" readonly />
       <div class="row" style="margin-top:10px;justify-content:flex-end">
         <button onclick="copyFromModal()">复制链接</button>
-        <button onclick="openClashImportFromModal()">Clash导入</button>
+        <button id="importBtn" onclick="openClashImportFromModal()">Clash导入</button>
       </div>
     </div>
   </div>
@@ -342,6 +342,8 @@ function renderLinkModal(){
   if(qrEl) qrEl.src=`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(link)}`;
   q('#linkTabGeneral')?.classList.toggle('tab-on',mode==='general');
   q('#linkTabStash')?.classList.toggle('tab-on',mode==='stash');
+  const importBtn=q('#importBtn');
+  if(importBtn) importBtn.textContent = (mode==='stash') ? 'Stash导入' : 'Clash导入';
 }
 function switchLinkTab(mode){
   currentLinkTab=(mode==='stash')?'stash':'general';
@@ -385,7 +387,13 @@ async function copyFromModal(){
 }
 function openClashImportFromModal(){
   const mode=currentLinkTab==='stash'?'stash':'general';
-  if(mode==='stash'){ toast('Stash 版无需 Clash 导入，请使用复制链接或扫码','err'); return; }
+  if(mode==='stash'){
+    const stashLink=String(currentModalLinks.stash||'').trim();
+    if(!stashLink){ toast('当前没有可用的 Stash 订阅链接','err'); return; }
+    const stashUri=`stash://install-config?url=${encodeURIComponent(stashLink)}&name=${encodeURIComponent('sui-sub-Stash版')}`;
+    location.href=stashUri;
+    return;
+  }
   const uri=String(currentModalClashImports[mode]||'');
   if(!uri){ toast('当前链接不支持 Clash 导入','err'); return; }
   location.href=uri;
