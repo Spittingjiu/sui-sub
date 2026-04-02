@@ -1301,7 +1301,7 @@ async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
       : templateUrl;
     const resp = await fetch(url, {
       headers: {
-        'accept': 'application/json,text/plain,*/*',
+        'accept': 'application/yaml,text/yaml,text/plain,*/*',
         'cache-control': 'no-cache'
       },
       signal: controller.signal
@@ -1310,16 +1310,8 @@ async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
 
     if (!resp.ok) throw new Error(`http ${resp.status}`);
     const text = await resp.text();
-    const isYamlUrl = /\.(ya?ml)(\?|$)/i.test(templateUrl);
-    const ctype = String(resp.headers.get('content-type') || '').toLowerCase();
-    const isYamlType = ctype.includes('yaml') || ctype.includes('yml');
-    let obj = null;
-    if (isYamlUrl || isYamlType) {
-      obj = YAML.load(text);
-    } else {
-      obj = JSON.parse(text);
-    }
-    if (!isPlainObject(obj)) throw new Error('template is not object');
+    const obj = YAML.load(text);
+    if (!isPlainObject(obj)) throw new Error('yaml template is not object');
 
     clashTemplateCache = { at: nowTs, data: obj, url: templateUrl };
     return obj;

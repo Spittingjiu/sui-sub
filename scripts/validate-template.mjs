@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import YAML from 'js-yaml';
 
-const p = process.argv[2] || 'template.json';
+const p = process.argv[2] || 'template.yaml';
 if (!fs.existsSync(p)) {
   console.error(`template not found: ${p}`);
   process.exit(1);
@@ -9,14 +10,14 @@ if (!fs.existsSync(p)) {
 
 let obj;
 try {
-  obj = JSON.parse(fs.readFileSync(p, 'utf8'));
+  obj = YAML.load(fs.readFileSync(p, 'utf8'));
 } catch (e) {
-  console.error('invalid json:', e.message);
+  console.error('invalid yaml:', e.message);
   process.exit(1);
 }
 
-const groups = Array.isArray(obj['proxy-groups']) ? obj['proxy-groups'] : [];
-const rules = Array.isArray(obj.rules) ? obj.rules : [];
+const groups = Array.isArray(obj?.['proxy-groups']) ? obj['proxy-groups'] : [];
+const rules = Array.isArray(obj?.rules) ? obj.rules : [];
 const groupNames = new Set(groups.map(g => String(g?.name || '').trim()).filter(Boolean));
 
 const missing = [];
@@ -27,7 +28,6 @@ for (const r of rules) {
   if (parts.length < 3) continue;
   const target = parts[2]?.trim();
   if (!target) continue;
-  // DIRECT/REJECT/MATCH 等内置目标跳过
   if (['DIRECT', 'REJECT', 'MATCH'].includes(target.toUpperCase())) continue;
   if (!groupNames.has(target)) missing.push({ rule: s, target });
 }
@@ -38,4 +38,4 @@ if (missing.length) {
   process.exit(2);
 }
 
-console.log('template validate ok');
+console.log('yaml template validate ok');
