@@ -1509,6 +1509,35 @@ function injectProxyServerNameserverPolicy(yamlText, proxies = []) {
   return y;
 }
 
+function injectStashLeafGroupProxies(yamlText, proxies = []) {
+  try {
+    const cfg = YAML.load(String(yamlText || ''));
+    if (!isPlainObject(cfg)) return String(yamlText || '');
+
+    const nodeNames = Array.from(new Set((proxies || [])
+      .map(p => String(p?.name || '').trim())
+      .filter(Boolean)));
+
+    const groups = Array.isArray(cfg['proxy-groups']) ? cfg['proxy-groups'] : [];
+    const leafSet = new Set(['手动选择', '独立选择', '自动选择']);
+
+    for (const g of groups) {
+      const gname = String(g?.name || '').trim();
+      if (!leafSet.has(gname)) continue;
+      const base = Array.isArray(g?.proxies)
+        ? g.proxies.map(x => String(x || '').trim()).filter(Boolean)
+        : [];
+      const merged = Array.from(new Set([...base, ...nodeNames]));
+      g.proxies = merged;
+    }
+
+    cfg['proxy-groups'] = groups;
+    return toYaml(cfg) + '\n';
+  } catch {
+    return String(yamlText || '');
+  }
+}
+
 function normalizeStashDnsYaml(yamlText) {
   let y = String(yamlText || '');
   // 固定 default-nameserver
@@ -1542,10 +1571,10 @@ async function buildStashConfigByLinks(links = []) {
   const idx = tpl.lastIndexOf(marker);
   if (idx >= 0) {
     const merged = normalizeStashDnsYaml(tpl.slice(0, idx) + `\n${proxiesYaml}\n`);
-    return injectProxyServerNameserverPolicy(merged, proxies);
+    return injectStashLeafGroupProxies(injectProxyServerNameserverPolicy(merged, proxies), proxies);
   }
   const merged = normalizeStashDnsYaml(tpl.trimEnd() + `\n\n${proxiesYaml}\n`);
-  return injectProxyServerNameserverPolicy(merged, proxies);
+  return injectStashLeafGroupProxies(injectProxyServerNameserverPolicy(merged, proxies), proxies);
 }
 
 function getSubByToken(token) {
