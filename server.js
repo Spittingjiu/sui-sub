@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import fs from 'node:fs';
 import fetch from 'node-fetch';
+import YAML from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,9 +18,9 @@ const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-cha
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
-const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/clash-template.json';
+const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
-const STASH_TEMPLATE_URL = process.env.SUI_SUB_STASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/clash-generic-template/main/stash-template.yaml';
+const STASH_TEMPLATE_URL = process.env.SUI_SUB_STASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/stash-template.yaml';
 
 
 const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
@@ -1309,7 +1310,15 @@ async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
 
     if (!resp.ok) throw new Error(`http ${resp.status}`);
     const text = await resp.text();
-    const obj = JSON.parse(text);
+    const isYamlUrl = /\.(ya?ml)(\?|$)/i.test(templateUrl);
+    const ctype = String(resp.headers.get('content-type') || '').toLowerCase();
+    const isYamlType = ctype.includes('yaml') || ctype.includes('yml');
+    let obj = null;
+    if (isYamlUrl || isYamlType) {
+      obj = YAML.load(text);
+    } else {
+      obj = JSON.parse(text);
+    }
     if (!isPlainObject(obj)) throw new Error('template is not object');
 
     clashTemplateCache = { at: nowTs, data: obj, url: templateUrl };
