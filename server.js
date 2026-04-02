@@ -1434,12 +1434,14 @@ async function buildClashConfigByLinks(links = []) {
       youtube: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml', path: './ruleset/blackmatrix7/YouTube.yaml', interval: 86400 },
       telegram: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml', path: './ruleset/blackmatrix7/Telegram.yaml', interval: 86400 },
       google: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml', path: './ruleset/blackmatrix7/Google.yaml', interval: 86400 },
-      my_whitelist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/clash-custom-rules/main/my_whitelist.yaml', path: './ruleset/custom/my_whitelist.yaml', interval: 86400 },
+      my_blacklist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_blacklist.yaml', path: './ruleset/custom/my_blacklist.yaml', interval: 86400 },
+      my_whitelist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.yaml', path: './ruleset/custom/my_whitelist.yaml', interval: 86400 },
       private: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Lan/Lan.yaml', path: './ruleset/blackmatrix7/Lan.yaml', interval: 86400 },
       cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
     },
     rules: [
+      'RULE-SET,my_blacklist,REJECT',
       'RULE-SET,my_whitelist,DIRECT',
       'RULE-SET,reject,REJECT',
       'RULE-SET,private,DIRECT',

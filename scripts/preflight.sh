@@ -5,10 +5,10 @@ echo "[1/4] node syntax check"
 node --check server.js >/dev/null
 
 echo "[2/4] template json check"
-if [[ -f /tmp/clash-generic-template/clash-template.json ]]; then
-  node scripts/validate-template.mjs /tmp/clash-generic-template/clash-template.json
+if [[ -f /tmp/mihomo-generic-template/clash-template.yaml ]]; then
+  node scripts/validate-template.mjs /tmp/mihomo-generic-template/clash-template.yaml
 else
-  echo "skip: /tmp/clash-generic-template/clash-template.json not found"
+  echo "skip: /tmp/mihomo-generic-template/clash-template.yaml not found"
 fi
 
 echo "[3/4] git status"
