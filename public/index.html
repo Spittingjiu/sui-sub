@@ -378,15 +378,7 @@ async function copyFromModal(){
   }
 }
 function openClashImportFromModal(){
-  const mode='general';
-  if(mode==='stash'){
-    const stashLink=String(currentModalLinks.stash||'').trim();
-    if(!stashLink){ toast('当前没有可用的 Stash 订阅链接','err'); return; }
-    const stashUri=`stash://install-config?url=${encodeURIComponent(stashLink)}&name=${encodeURIComponent('sui-sub-通用版')}`;
-    location.href=stashUri;
-    return;
-  }
-  const uri=String(currentModalClashImports[mode]||'');
+  const uri=String(currentModalClashImports.general||'');
   if(!uri){ toast('当前链接不支持 Clash 导入','err'); return; }
   location.href=uri;
 }
