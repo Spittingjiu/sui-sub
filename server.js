@@ -1465,6 +1465,47 @@ async function buildClashConfigByLinks(links = []) {
 
 
 
+
+function isIpv4Host(h = '') {
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(String(h || '').trim());
+}
+
+function isIpv6Host(h = '') {
+  const v = String(h || '').trim();
+  return v.includes(':') && !v.includes('.') && /^[0-9a-fA-F:]+$/.test(v);
+}
+
+function isDomainHost(h = '') {
+  const v = String(h || '').trim().toLowerCase();
+  if (!v || isIpv4Host(v) || isIpv6Host(v)) return false;
+  if (v === 'localhost') return false;
+  return /[a-z]/.test(v) && v.includes('.');
+}
+
+function buildDynamicProxyServerNameserverPolicyYaml(proxies = []) {
+  const set = new Set();
+  for (const p of (proxies || [])) {
+    const host = String(p?.server || '').trim().toLowerCase();
+    if (!isDomainHost(host)) continue;
+    set.add(host);
+  }
+  const domains = Array.from(set).sort();
+  if (!domains.length) return '  proxy-server-nameserver-policy: {}\n';
+  const lines = ['  proxy-server-nameserver-policy:'];
+  for (const d of domains) lines.push(`    '+.${d}': 223.5.5.5`);
+  return lines.join('\n') + '\n';
+}
+
+function injectProxyServerNameserverPolicy(yamlText, proxies = []) {
+  const block = '\n' + buildDynamicProxyServerNameserverPolicyYaml(proxies);
+  let y = String(yamlText || '');
+  // Replace object form: proxy-server-nameserver-policy: {}
+  y = y.replace(/\n\s{2}proxy-server-nameserver-policy:\s*\{\}\s*\n/m, block);
+  // Replace mapping form
+  y = y.replace(/\n\s{2}proxy-server-nameserver-policy:\n(?:\s{4}.+\n)+/m, block);
+  return y;
+}
+
 function normalizeStashDnsYaml(yamlText) {
   let y = String(yamlText || '');
   // 固定 default-nameserver
@@ -1497,9 +1538,11 @@ async function buildStashConfigByLinks(links = []) {
   const marker = '\nproxies:';
   const idx = tpl.lastIndexOf(marker);
   if (idx >= 0) {
-    return normalizeStashDnsYaml(tpl.slice(0, idx) + `\n${proxiesYaml}\n`);
+    const merged = normalizeStashDnsYaml(tpl.slice(0, idx) + `\n${proxiesYaml}\n`);
+    return injectProxyServerNameserverPolicy(merged, proxies);
   }
-  return normalizeStashDnsYaml(tpl.trimEnd() + `\n\n${proxiesYaml}\n`);
+  const merged = normalizeStashDnsYaml(tpl.trimEnd() + `\n\n${proxiesYaml}\n`);
+  return injectProxyServerNameserverPolicy(merged, proxies);
 }
 
 function getSubByToken(token) {
