@@ -1460,24 +1460,7 @@ async function buildClashConfigByLinks(links = []) {
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
 
-  // 动态注入：将节点名显式写入指定叶子组，避免客户端不展开 include-all 导致空组
-  try {
-    const nodeNames = Array.from(new Set((proxies || []).map(p => String(p?.name || '').trim()).filter(Boolean)));
-    const target = new Set(['手动选择', '独立选择', '自动选择', 'AI分流', 'YouTube分流', 'Telegram分流', 'Google']);
-    const groups = Array.isArray(cfg['proxy-groups']) ? cfg['proxy-groups'] : [];
-    for (const g of groups) {
-      const name = String(g?.name || '').trim();
-      if (!target.has(name)) continue;
-      const base = Array.isArray(g?.proxies) ? g.proxies.map(x => String(x || '').trim()).filter(Boolean) : [];
-      g.proxies = Array.from(new Set([...base, ...nodeNames]));
-      // 避免 include-all 与显式注入叠加导致同组重复节点
-      delete g['include-all'];
-      delete g['include-all-proxies'];
-    }
-    cfg['proxy-groups'] = groups;
-  } catch {}
-
-  return toYaml(cfg) + '\n';
+    return toYaml(cfg) + '\n';
 }
 
 
