@@ -1408,7 +1408,7 @@ async function buildClashConfigByLinks(links = []) {
       ]
     },
     'proxy-groups': [
-      { name: '节点选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['手动选择', '独立选择', '自动选择'] },
+      { name: '节点选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['手动选择', '独立选择', '自动选择', 'DIRECT'] },
       { name: '手动选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [] },
       { name: '独立选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [] },
       { name: 'AI分流', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', '自动选择'] },
