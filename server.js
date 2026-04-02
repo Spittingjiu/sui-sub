@@ -1470,6 +1470,9 @@ async function buildClashConfigByLinks(links = []) {
       if (!target.has(name)) continue;
       const base = Array.isArray(g?.proxies) ? g.proxies.map(x => String(x || '').trim()).filter(Boolean) : [];
       g.proxies = Array.from(new Set([...base, ...nodeNames]));
+      // 避免 include-all 与显式注入叠加导致同组重复节点
+      delete g['include-all'];
+      delete g['include-all-proxies'];
     }
     cfg['proxy-groups'] = groups;
   } catch {}
