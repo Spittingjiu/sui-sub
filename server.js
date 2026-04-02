@@ -1561,11 +1561,32 @@ app.get('/api/sub/:token/plain', (req, res) => {
 
 
 
+app.get('/sub/:token/clashmi', async (req, res) => {
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'clashmi');
+  const yaml = await buildClashConfigByLinks(links || []);
+  res.setHeader('content-type', 'text/yaml; charset=utf-8');
+  res.send(yaml);
+});
+
+app.get('/api/sub/:token/clashmi', async (req, res) => {
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'clashmi-api');
+  const yaml = await buildClashConfigByLinks(links || []);
+  res.setHeader('content-type', 'text/yaml; charset=utf-8');
+  res.send(yaml);
+});
+
+
 app.get('/sub/:token/clash', async (req, res) => {
   const sub = getSubByToken(req.params.token);
   if (!sub) return res.status(404).send('not found');
   const links = getSubNodeLinksBySub(sub);
-  recordSubscriptionLog(req, sub, 'clash');
+  recordSubscriptionLog(req, sub, 'clash-compat');
   const yaml = await buildClashConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
@@ -1575,12 +1596,11 @@ app.get('/api/sub/:token/clash', async (req, res) => {
   const sub = getSubByToken(req.params.token);
   if (!sub) return res.status(404).send('not found');
   const links = getSubNodeLinksBySub(sub);
-  recordSubscriptionLog(req, sub, 'clash-api');
+  recordSubscriptionLog(req, sub, 'clash-api-compat');
   const yaml = await buildClashConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
 });
-
 
 app.use(express.static(path.join(__dirname, 'public')));
 
