@@ -1363,19 +1363,19 @@ async function buildClashConfigByLinks(links = []) {
         '+.qq.com',
         '+.wechat.com',
         '+.weixin.qq.com',
-        'geosite:cn',
+        '+.cn',
         'geosite:apple',
         'geosite:microsoft@cn'
       ],
       'default-nameserver': ['1.1.1.1', '8.8.8.8'],
       'nameserver-policy': {
-        'geosite:cn': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-        'geosite:geolocation-!cn': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
+        '+.cn': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+        '+.com': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
       },
       nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver-policy': {
-        'geosite:cn': ['223.5.5.5', '119.29.29.29'],
+        '+.cn': ['223.5.5.5', '119.29.29.29'],
         '+.zzao.de': ['223.5.5.5', '119.29.29.29'],
         '+.fengqi0216.top': ['223.5.5.5', '119.29.29.29']
       },
@@ -1403,7 +1403,7 @@ async function buildClashConfigByLinks(links = []) {
         '+.msftconnecttest.com',
         '+.msftncsi.com',
         '+.googlecast.com',
-        'geosite:cn',
+        '+.cn',
         'geosite:apple'
       ]
     },
@@ -1543,8 +1543,8 @@ function normalizeStashDnsYaml(yamlText) {
   // 固定 default-nameserver
   y = y.replace(/\n\s*default-nameserver:\n(?:\s*- .*\n)+/m, `\n  default-nameserver:\n    - 223.5.5.5\n    - 119.29.29.29\n`);
   // 兼容 Stash：nameserver-policy 值必须是 string，不能是数组
-  y = y.replace(/\n\s*nameserver-policy:\n(?:\s*'geosite:cn':\n\s*- .*\n\s*- .*\n\s*'geosite:geolocation-!cn':\n\s*- .*\n\s*- .*\n)/m,
-    `\n  nameserver-policy:\n    'geosite:cn': https://doh.pub/dns-query\n    'geosite:geolocation-!cn': https://1.1.1.1/dns-query\n`);
+  y = y.replace(/\n\s*nameserver-policy:\n(?:\s*'+.cn':\n\s*- .*\n\s*- .*\n\s*'+.com':\n\s*- .*\n\s*- .*\n)/m,
+    `\n  nameserver-policy:\n    '+.cn': https://doh.pub/dns-query\n    '+.com': https://1.1.1.1/dns-query\n`);
   return y;
 }
 
