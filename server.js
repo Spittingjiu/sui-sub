@@ -1461,6 +1461,34 @@ async function buildClashConfigByLinks(links = []) {
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
 
+  // 兜底：部分客户端对 include-all 兼容不稳定，这里强制把节点名注入策略组
+  try {
+    const nodeNames = proxies.map(p => String(p?.name || '').trim()).filter(Boolean);
+    const uniq = (arr = []) => {
+      const out = [];
+      const set = new Set();
+      for (const x of arr) {
+        const v = String(x || '').trim();
+        if (!v || set.has(v)) continue;
+        set.add(v);
+        out.push(v);
+      }
+      return out;
+    };
+    const isBuiltIn = (x = '') => /^(DIRECT|REJECT|PASS)$/i.test(String(x || ''));
+    const groups = Array.isArray(cfg['proxy-groups']) ? cfg['proxy-groups'] : [];
+    for (const g of groups) {
+      const ps = Array.isArray(g?.proxies) ? g.proxies.map(x => String(x || '').trim()).filter(Boolean) : [];
+      const includeAll = !!(g && (g['include-all'] === true || g['include-all-proxies'] === true));
+      if (includeAll || ['手动选择', '独立选择', '自动选择'].includes(String(g?.name || ''))) {
+        g.proxies = uniq([
+          ...ps,
+          ...nodeNames.filter(n => !isBuiltIn(n))
+        ]);
+      }
+    }
+    cfg['proxy-groups'] = groups;
+  } catch {}
 
   return toYaml(cfg) + '\n';
 }
