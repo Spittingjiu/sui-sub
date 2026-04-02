@@ -18,9 +18,8 @@ const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-cha
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
-const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
+const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clashmi-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
-const STASH_TEMPLATE_URL = process.env.SUI_SUB_STASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/stash-template.yaml';
 
 
 const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
@@ -1469,122 +1468,6 @@ async function buildClashConfigByLinks(links = []) {
 
 
 
-function isIpv4Host(h = '') {
-  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(String(h || '').trim());
-}
-
-function isIpv6Host(h = '') {
-  const v = String(h || '').trim();
-  return v.includes(':') && !v.includes('.') && /^[0-9a-fA-F:]+$/.test(v);
-}
-
-function isDomainHost(h = '') {
-  const v = String(h || '').trim().toLowerCase();
-  if (!v || isIpv4Host(v) || isIpv6Host(v)) return false;
-  if (v === 'localhost') return false;
-  return /[a-z]/.test(v) && v.includes('.');
-}
-
-function buildDynamicProxyServerNameserverPolicyYaml(proxies = []) {
-  const set = new Set();
-  for (const p of (proxies || [])) {
-    const host = String(p?.server || '').trim().toLowerCase();
-    if (!isDomainHost(host)) continue;
-    set.add(host);
-  }
-  const domains = Array.from(set).sort();
-  if (!domains.length) return '  proxy-server-nameserver-policy: {}\n';
-  const lines = ['  proxy-server-nameserver-policy:'];
-  for (const d of domains) lines.push(`    '+.${d}': 223.5.5.5`);
-  return lines.join('\n') + '\n';
-}
-
-function injectProxyServerNameserverPolicy(yamlText, proxies = []) {
-  const block = '\n' + buildDynamicProxyServerNameserverPolicyYaml(proxies);
-  let y = String(yamlText || '');
-  // Replace object form: proxy-server-nameserver-policy: {}
-  y = y.replace(/\n\s{2}proxy-server-nameserver-policy:\s*\{\}\s*\n/m, block);
-  // Replace mapping form
-  y = y.replace(/\n\s{2}proxy-server-nameserver-policy:\n(?:\s{4}.+\n)+/m, block);
-  return y;
-}
-
-function injectStashLeafGroupProxies(yamlText, proxies = []) {
-  try {
-    const cfg = YAML.load(String(yamlText || ''));
-    if (!isPlainObject(cfg)) return String(yamlText || '');
-
-    const nodeNames = Array.from(new Set((proxies || [])
-      .map(p => String(p?.name || '').trim())
-      .filter(Boolean)));
-
-    const groups = Array.isArray(cfg['proxy-groups']) ? cfg['proxy-groups'] : [];
-    const leafSet = new Set(['手动选择', '独立选择', '自动选择']);
-
-    for (const g of groups) {
-      const gname = String(g?.name || '').trim();
-      if (!leafSet.has(gname)) continue;
-      const base = Array.isArray(g?.proxies)
-        ? g.proxies.map(x => String(x || '').trim()).filter(Boolean)
-        : [];
-      const merged = Array.from(new Set([...base, ...nodeNames]));
-      g.proxies = merged;
-
-      // 稳定性优先：Stash 上自动测速可能导致瞬时断线，统一改为手动 select
-      if (gname === '自动选择') {
-        g.type = 'select';
-        delete g.url;
-        delete g.interval;
-        delete g.tolerance;
-      }
-    }
-
-    cfg['proxy-groups'] = groups;
-    return toYaml(cfg) + '\n';
-  } catch {
-    return String(yamlText || '');
-  }
-}
-
-function normalizeStashDnsYaml(yamlText) {
-  let y = String(yamlText || '');
-  // 固定 default-nameserver
-  y = y.replace(/\n\s*default-nameserver:\n(?:\s*- .*\n)+/m, `\n  default-nameserver:\n    - 223.5.5.5\n    - 119.29.29.29\n`);
-  // 兼容 Stash：nameserver-policy 值必须是 string，不能是数组
-  y = y.replace(/\n\s*nameserver-policy:\n(?:\s*'+.cn':\n\s*- .*\n\s*- .*\n\s*'+.com':\n\s*- .*\n\s*- .*\n)/m,
-    `\n  nameserver-policy:\n    '+.cn': https://doh.pub/dns-query\n    '+.com': https://1.1.1.1/dns-query\n`);
-  return y;
-}
-
-
-async function buildStashConfigByLinks(links = []) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  const stashUrl = `${STASH_TEMPLATE_URL}${STASH_TEMPLATE_URL.includes('?') ? '&' : '?'}_ts=${Date.now()}`;
-  const resp = await fetch(stashUrl, { headers: { 'cache-control': 'no-cache' }, signal: controller.signal });
-  clearTimeout(timer);
-  if (!resp.ok) throw new Error(`stash template fetch failed: ${resp.status}`);
-  const tpl = await resp.text();
-
-  const uniq = uniqNameFactory();
-  const proxies = [];
-  for (const raw of links) {
-    const p = parseLinkToClashProxy(raw, uniq);
-    if (p) proxies.push(p);
-  }
-
-  const proxiesYaml = toYaml({ proxies }, 0);
-  // 只替换最末尾顶层 proxies 块，避免误伤 proxy-groups 内部的 proxies: []
-  const marker = '\nproxies:';
-  const idx = tpl.lastIndexOf(marker);
-  if (idx >= 0) {
-    const merged = normalizeStashDnsYaml(tpl.slice(0, idx) + `\n${proxiesYaml}\n`);
-    return injectStashLeafGroupProxies(injectProxyServerNameserverPolicy(merged, proxies), proxies);
-  }
-  const merged = normalizeStashDnsYaml(tpl.trimEnd() + `\n\n${proxiesYaml}\n`);
-  return injectStashLeafGroupProxies(injectProxyServerNameserverPolicy(merged, proxies), proxies);
-}
-
 function getSubByToken(token) {
   return db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token) || null;
 }
@@ -1676,34 +1559,6 @@ app.get('/api/sub/:token/plain', (req, res) => {
 });
 
 
-
-app.get('/sub/:token/stash', async (req, res) => {
-  try {
-    const sub = getSubByToken(req.params.token);
-    if (!sub) return res.status(404).send('not found');
-    const links = getSubNodeLinksBySub(sub);
-    recordSubscriptionLog(req, sub, 'stash');
-    const yaml = await buildStashConfigByLinks(links || []);
-    res.setHeader('content-type', 'text/yaml; charset=utf-8');
-    res.send(yaml);
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-app.get('/api/sub/:token/stash', async (req, res) => {
-  try {
-    const sub = getSubByToken(req.params.token);
-    if (!sub) return res.status(404).send('not found');
-    const links = getSubNodeLinksBySub(sub);
-    recordSubscriptionLog(req, sub, 'stash-api');
-    const yaml = await buildStashConfigByLinks(links || []);
-    res.setHeader('content-type', 'text/yaml; charset=utf-8');
-    res.send(yaml);
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
 
 
 app.get('/sub/:token/clash', async (req, res) => {
