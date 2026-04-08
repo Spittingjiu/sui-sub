@@ -1460,6 +1460,15 @@ async function buildClashConfigByLinks(links = []) {
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
 
+  // 兼容异常模板：rule-providers.path 不允许带 query（会导致规则集加载失败）
+  if (cfg && typeof cfg === 'object' && cfg['rule-providers'] && typeof cfg['rule-providers'] === 'object') {
+    for (const rp of Object.values(cfg['rule-providers'])) {
+      if (rp && typeof rp === 'object' && typeof rp.path === 'string' && rp.path.includes('?')) {
+        rp.path = rp.path.split('?')[0];
+      }
+    }
+  }
+
     return toYaml(cfg) + '\n';
 }
 
