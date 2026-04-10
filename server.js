@@ -18,7 +18,7 @@ const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-cha
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
-const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clashmi-template.yaml';
+const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
 
 
@@ -487,7 +487,7 @@ app.get('/api/auth/me', (req, res) => {
 
 app.get('/api/admin/user', (_req, res) => {
   const adm = getAdminSettings();
-  res.json({ ok: true, username: adm.username, template_url: adm.template_url || DEFAULT_CLASH_TEMPLATE_URL });
+  res.json({ ok: true, username: adm.username });
 });
 
 app.post('/api/admin/user', (req, res) => {
@@ -495,14 +495,12 @@ app.post('/api/admin/user', (req, res) => {
     const current = getAdminSettings();
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
-    const template_url = String(req.body?.template_url || '').trim() || DEFAULT_CLASH_TEMPLATE_URL;
 
     if (!username) return res.status(400).json({ ok: false, error: 'username 必填' });
     if (password && password.length < 6) return res.status(400).json({ ok: false, error: 'password 至少6位' });
-    if (!/^https?:\/\//i.test(template_url)) return res.status(400).json({ ok: false, error: 'template_url 必须是 http/https 链接' });
 
     const nextPassword = password || current.password;
-    setAdminSettings(username, nextPassword, template_url);
+    setAdminSettings(username, nextPassword, current.template_url || DEFAULT_CLASH_TEMPLATE_URL);
     cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
@@ -525,37 +523,6 @@ app.get('/api/admin/subscription-logs', (req, res) => {
   }
 });
 
-
-app.get('/api/admin/sub-health', async (_req, res) => {
-  try {
-    const subs = db.prepare('SELECT id,name,token FROM subscriptions ORDER BY id ASC').all();
-    const out = [];
-
-    for (const sub of subs) {
-      const links = getSubNodeLinksBySub(sub) || [];
-      const row = {
-        id: sub.id,
-        name: sub.name,
-        token: sub.token,
-        node_count: links.length,
-        clash_ok: false,
-      };
-
-      try {
-        const clash = await buildClashConfigByLinks(links);
-        row.clash_ok = typeof clash === 'string' && clash.includes('proxies:');
-      } catch (_e) {
-        row.clash_ok = false;
-      }
-
-      out.push(row);
-    }
-
-    res.json({ ok: true, checked_at: now(), items: out });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
 
 app.get('/api/bridge/e2ee-meta', (_req, res) => {
   res.json({ ok: true, alg: 'x25519+aes-256-gcm', publicKey: E2EE.publicKeyB64 });
@@ -1568,26 +1535,6 @@ app.get('/api/sub/:token/plain', (req, res) => {
 
 
 
-
-app.get('/sub/:token/clashmi', async (req, res) => {
-  const sub = getSubByToken(req.params.token);
-  if (!sub) return res.status(404).send('not found');
-  const links = getSubNodeLinksBySub(sub);
-  recordSubscriptionLog(req, sub, 'clashmi');
-  const yaml = await buildClashConfigByLinks(links || []);
-  res.setHeader('content-type', 'text/yaml; charset=utf-8');
-  res.send(yaml);
-});
-
-app.get('/api/sub/:token/clashmi', async (req, res) => {
-  const sub = getSubByToken(req.params.token);
-  if (!sub) return res.status(404).send('not found');
-  const links = getSubNodeLinksBySub(sub);
-  recordSubscriptionLog(req, sub, 'clashmi-api');
-  const yaml = await buildClashConfigByLinks(links || []);
-  res.setHeader('content-type', 'text/yaml; charset=utf-8');
-  res.send(yaml);
-});
 
 
 app.get('/sub/:token/clash', async (req, res) => {
