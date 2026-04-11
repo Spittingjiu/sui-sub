@@ -4,12 +4,17 @@ import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import fs from 'node:fs';
+import os from 'node:os';
+import net from 'node:net';
+import zlib from 'node:zlib';
+import { spawnSync } from 'node:child_process';
 import fetch from 'node-fetch';
 import YAML from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+app.set('trust proxy', true);
 const PORT = process.env.PORT || 8780;
 
 const ADMIN_USER = process.env.SUI_SUB_USER || 'admin';
@@ -25,6 +30,9 @@ const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_
 const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
 const GEOIP_CACHE = new Map();
 const GEOIP_TTL_MS = 6 * 60 * 60 * 1000;
+
+const MIHOMO_BIN = '/usr/local/bin/mihomo';
+const MIHOMO_TMP = path.join(__dirname, 'data', 'mihomo-install');
 
 
 function ensureE2EEKeys(){
@@ -122,6 +130,14 @@ CREATE TABLE IF NOT EXISTS subscription_logs (
   device_hint TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS node_connectivity (
+  node_id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  latency_ms INTEGER,
+  last_error TEXT,
+  checked_at TEXT NOT NULL,
+  FOREIGN KEY(node_id) REFERENCES nodes(id)
+);
 `);
 
 let sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
@@ -189,6 +205,46 @@ function ensureLocalSource() {
 
 app.use(express.json({ limit: '1mb' }));
 
+function filterProxyRequestCookie(cookieHeader = '') {
+  const parts = String(cookieHeader || '').split(';').map(x => x.trim()).filter(Boolean);
+  const keep = parts.filter(p => !p.startsWith('sui_sub_session='));
+  return keep.join('; ');
+}
+
+function rewriteSetCookieForProxy(setCookieHeaders = [], sourceId) {
+  const prefixPath = `/panel-proxy/${sourceId}`;
+  return (setCookieHeaders || []).map((line) => {
+    const segs = String(line || '').split(';').map(s => s.trim()).filter(Boolean);
+    const out = [];
+    for (const seg of segs) {
+      const low = seg.toLowerCase();
+      if (low.startsWith('domain=')) continue;
+      if (low.startsWith('path=')) { out.push(`Path=${prefixPath}`); continue; }
+      out.push(seg);
+    }
+    if (!out.some(x => x.toLowerCase().startsWith('path='))) out.push(`Path=${prefixPath}`);
+    return out.join('; ');
+  });
+}
+
+async function readRawBody(req, limitBytes = 2 * 1024 * 1024) {
+  return await new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limitBytes) {
+        reject(new Error('payload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 const now = () => new Date().toISOString();
 
 let viewCache = new Map();
@@ -200,6 +256,151 @@ function cacheGet(key){
 }
 function cacheSet(key, data, ttl = VIEW_CACHE_MS){ viewCache.set(key, { data, exp: Date.now() + ttl }); }
 function cacheInvalidate(){ viewCache.clear(); }
+
+function getPublicBaseUrl(req) {
+  const xfProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const xfHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const proto = xfProto || req.protocol || 'http';
+  const host = xfHost || req.get('host');
+  return `${proto}://${host}`;
+}
+
+function mihomoInstalled() {
+  try {
+    return fs.existsSync(MIHOMO_BIN);
+  } catch {
+    return false;
+  }
+}
+
+function pickMihomoAsset(assets = []) {
+  const names = assets.map(a => a?.name || '');
+  const preferred = names.find(n => /^mihomo-linux-amd64-compatible-.*\.gz$/i.test(n))
+    || names.find(n => /^mihomo-linux-amd64-.*\.gz$/i.test(n));
+  if (!preferred) return null;
+  return assets.find(a => a?.name === preferred) || null;
+}
+
+async function installMihomoBinary() {
+  const rel = await fetch('https://api.github.com/repos/MetaCubeX/mihomo/releases/latest', {
+    headers: { 'user-agent': 'sui-sub' }
+  });
+  if (!rel.ok) throw new Error(`fetch mihomo release failed: HTTP ${rel.status}`);
+  const relJson = await rel.json();
+  const asset = pickMihomoAsset(relJson?.assets || []);
+  if (!asset?.browser_download_url) throw new Error('no linux-amd64 mihomo asset found');
+
+  fs.mkdirSync(MIHOMO_TMP, { recursive: true });
+  const r = await fetch(asset.browser_download_url, { headers: { 'user-agent': 'sui-sub' } });
+  if (!r.ok) throw new Error(`download mihomo failed: HTTP ${r.status}`);
+  const gzBuf = Buffer.from(await r.arrayBuffer());
+  const binBuf = zlib.gunzipSync(gzBuf);
+
+  const tmpPath = path.join(MIHOMO_TMP, 'mihomo.new');
+  fs.writeFileSync(tmpPath, binBuf, { mode: 0o755 });
+  fs.renameSync(tmpPath, MIHOMO_BIN);
+  fs.chmodSync(MIHOMO_BIN, 0o755);
+
+  const v = spawnSync(MIHOMO_BIN, ['-v'], { encoding: 'utf8', timeout: 8000 });
+  if (v.status !== 0) throw new Error(`mihomo verify failed: ${(v.stderr || v.stdout || '').trim()}`);
+  return (v.stdout || v.stderr || '').trim();
+}
+
+function uninstallMihomoBinary() {
+  if (fs.existsSync(MIHOMO_BIN)) fs.unlinkSync(MIHOMO_BIN);
+}
+
+function parseHostPortFromRawLink(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  if (s.startsWith('vmess://')) {
+    try {
+      const p = b64decodeLoose(s.slice('vmess://'.length));
+      const j = JSON.parse(p || '{}');
+      const host = String(j.add || '').trim();
+      const port = Number(j.port || 0);
+      if (host && port > 0) return { host, port };
+    } catch {}
+    return null;
+  }
+  try {
+    const u = new URL(s);
+    const host = String(u.hostname || '').trim();
+    const port = Number(u.port || 0);
+    if (host && port > 0) return { host, port };
+  } catch {}
+  return null;
+}
+
+async function tcpCheckHostPort(host, port, timeoutMs = 4000) {
+  return await new Promise((resolve) => {
+    const start = Date.now();
+    const sock = net.createConnection({ host, port });
+    let done = false;
+    const finish = (ok, err = '') => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch {}
+      if (ok) resolve({ status: 'ok', latency_ms: Math.max(1, Date.now() - start), last_error: '' });
+      else resolve({ status: 'disconnected', latency_ms: null, last_error: String(err || 'connect failed').slice(0, 180) });
+    };
+    sock.setTimeout(timeoutMs, () => finish(false, 'connect timeout'));
+    sock.on('connect', () => finish(true));
+    sock.on('error', (e) => finish(false, e?.message || e));
+  });
+}
+
+async function checkNodeConnectivity(row) {
+  if (!mihomoInstalled()) return { status: 'unknown', latency_ms: null, last_error: 'mihomo not installed' };
+  if (String(row?.source_type || 'sui_api') === 'local') {
+    const hp = parseHostPortFromRawLink(row?.raw_link || '');
+    if (!hp) return { status: 'disconnected', latency_ms: null, last_error: 'cannot parse host/port from local node link' };
+    return await tcpCheckHostPort(hp.host, hp.port, 5000);
+  }
+  if (!row?.panel_token) return { status: 'disconnected', latency_ms: null, last_error: 'panel token empty' };
+
+  const source = {
+    id: row.source_id,
+    panel_url: row.panel_url,
+    panel_token: row.panel_token,
+    source_type: row.source_type
+  };
+
+  const start = Date.now();
+  try {
+    const inboundId = await findSuiInboundIdByNodeHash(source, row.node_hash);
+    const payload = { host: 'cp.cloudflare.com', port: 443 };
+    if (inboundId) payload.inboundId = Number(inboundId);
+
+    const j = await suiRequest(source, '/api/system/chain/test', 'POST', payload);
+    if (j?.success) {
+      return { status: 'ok', latency_ms: Math.max(1, Date.now() - start), last_error: '' };
+    }
+    return { status: 'fail', latency_ms: null, last_error: String(j?.msg || 'chain test failed').slice(0, 180) };
+  } catch (e) {
+    return { status: 'fail', latency_ms: null, last_error: String(e?.message || e).slice(0, 180) };
+  }
+}
+
+async function runConnectivityBatch(sourceId = 0, limit = 20) {
+  const lim = Math.max(1, Math.min(60, Number(limit || 20)));
+  const rows = sourceId > 0
+    ? db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.source_id=? ORDER BY n.id DESC LIMIT ?`).all(sourceId, lim)
+    : db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id DESC LIMIT ?`).all(lim);
+
+  const mark = db.prepare('INSERT INTO node_connectivity(node_id,status,latency_ms,last_error,checked_at) VALUES(?,?,?,?,?) ON CONFLICT(node_id) DO UPDATE SET status=excluded.status,latency_ms=excluded.latency_ms,last_error=excluded.last_error,checked_at=excluded.checked_at');
+  for (const row of rows) {
+    mark.run(row.id, 'testing', null, '', now());
+  }
+
+  const out = [];
+  for (const row of rows) {
+    const ret = await checkNodeConnectivity(row);
+    mark.run(row.id, ret.status, ret.latency_ms, ret.last_error || '', now());
+    out.push({ node_id: row.id, ...ret });
+  }
+  return out;
+}
 
 
 function signSession(user, exp) {
@@ -240,6 +441,12 @@ function requireAuth(req, res, next) {
   if (!sess) return res.status(401).json({ ok: false, error: 'unauthorized' });
   req.user = sess.user;
   next();
+}
+
+function getSessionUser(req) {
+  const cookies = parseCookies(req);
+  const sess = verifySession(cookies.sui_sub_session || '');
+  return sess || null;
 }
 
 app.use((req, res, next) => {
@@ -325,9 +532,9 @@ async function suiRequest(source, apiPath, method = 'GET', body) {
   return json;
 }
 
-async function fetchSuiPanelLinks(panelUrl, panelToken) {
-  const base = String(panelUrl || '').replace(/\/$/, '');
-  const headers = { 'x-panel-token': panelToken };
+async function fetchSuiPanelLinks(source) {
+  const base = String(source.panel_url || '').replace(/\/$/, '');
+  const headers = { 'x-panel-token': source.panel_token };
 
   const inbResp = await fetch(`${base}/api/inbounds`, { headers });
   if (!inbResp.ok) throw new Error(`/api/inbounds HTTP ${inbResp.status}`);
@@ -436,7 +643,7 @@ async function syncSource(id) {
   if (!source) throw new Error('source not found');
   if (String(source.source_type || 'sui_api') === 'local') return { local: true };
   if (!source.panel_token) throw new Error('panel token empty');
-  const nodes = await fetchSuiPanelLinks(source.panel_url, source.panel_token);
+  const nodes = await fetchSuiPanelLinks(source);
   const st = upsertNodes(id, nodes);
   db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), 'ok', id);
   return st;
@@ -484,6 +691,75 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ ok: true, username: sess.user });
 });
 
+
+app.get('/api/kernel/status', (_req, res) => {
+  try {
+    let version = '';
+    if (mihomoInstalled()) {
+      const r = spawnSync(MIHOMO_BIN, ['-v'], { encoding: 'utf8', timeout: 6000 });
+      version = (r.stdout || r.stderr || '').trim();
+    }
+    res.json({ ok: true, installed: mihomoInstalled(), version, path: MIHOMO_BIN });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/kernel/install', async (_req, res) => {
+  try {
+    const v = await installMihomoBinary();
+    res.json({ ok: true, installed: true, version: v, path: MIHOMO_BIN });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/kernel/uninstall', (_req, res) => {
+  try {
+    uninstallMihomoBinary();
+    res.json({ ok: true, installed: false, path: MIHOMO_BIN });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/nodes/connectivity/check', async (req, res) => {
+  try {
+    const sourceId = Number(req.body?.sourceId || 0);
+    const limit = Number(req.body?.limit || 20);
+    const rows = await runConnectivityBatch(sourceId, limit);
+    cacheInvalidate();
+    res.json({ ok: true, checked: rows.length, items: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/nodes/connectivity', (req, res) => {
+  try {
+    const sourceId = Number(req.query.sourceId || 0);
+    let rows;
+    if (sourceId > 0) {
+      rows = db.prepare(`
+        SELECT n.id as node_id, c.status, c.latency_ms, c.last_error, c.checked_at
+        FROM nodes n
+        LEFT JOIN node_connectivity c ON c.node_id=n.id
+        WHERE n.source_id=?
+        ORDER BY n.id DESC
+      `).all(sourceId);
+    } else {
+      rows = db.prepare(`
+        SELECT n.id as node_id, c.status, c.latency_ms, c.last_error, c.checked_at
+        FROM nodes n
+        LEFT JOIN node_connectivity c ON c.node_id=n.id
+        ORDER BY n.id DESC
+      `).all();
+    }
+    res.json({ ok: true, items: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 app.get('/api/admin/user', (_req, res) => {
   const adm = getAdminSettings();
@@ -568,9 +844,36 @@ app.get('/api/sources', (req, res) => {
 app.post('/api/sources', async (req, res) => {
   try {
     const { name, panel_url, panel_token } = req.body || {};
-    if (!name || !panel_url || !panel_token) return res.status(400).json({ ok: false, error: 'name / panel_url / panel_token 必填' });
+    const nm = String(name || '').trim();
+    const pu = String(panel_url || '').trim();
+    const auth = String(panel_token || '').trim();
+    if (!nm || !pu || !auth) return res.status(400).json({ ok: false, error: 'name / panel_url / token 必填' });
 
-    const result = insertSourceRow(name.trim(), panel_url.trim(), panel_token.trim());
+    let finalToken = auth;
+    const m = auth.match(/^([^:\s]+):(.+)$/);
+    if (m) {
+      const username = m[1].trim();
+      const password = m[2];
+      const base = pu.replace(/\/$/, '');
+      const lr = await fetch(`${base}/api/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        redirect: 'manual'
+      });
+      if (!lr.ok) return res.status(400).json({ ok: false, error: `面板登录失败 /api/login HTTP ${lr.status}` });
+      const tr = await fetch(`${base}/api/panel/token`, {
+        method: 'GET',
+        headers: { cookie: (lr.headers.raw && lr.headers.raw()['set-cookie'] ? lr.headers.raw()['set-cookie'].map(x=>String(x).split(';')[0]).join('; ') : '') }
+      });
+      if (!tr.ok) return res.status(400).json({ ok: false, error: `获取 token 失败 /api/panel/token HTTP ${tr.status}` });
+      const tj = await tr.json().catch(() => null);
+      const tk = String(tj?.obj?.token || '').trim();
+      if (!tk) return res.status(400).json({ ok: false, error: '面板未返回 token' });
+      finalToken = tk;
+    }
+
+    const result = insertSourceRow(nm, pu, finalToken);
     const source_id = Number(result.lastInsertRowid);
 
     // 立即同步一次（异步）
@@ -652,15 +955,23 @@ app.get('/api/view/nodes', (req, res) => {
   let rows;
   if (sourceId > 0) {
     rows = db.prepare(`
-      SELECT n.*, s.name as source_name, s.source_type as source_type
-      FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+      SELECT n.*, s.name as source_name, s.source_type as source_type,
+             c.status as connectivity_status, c.latency_ms as connectivity_latency_ms,
+             c.last_error as connectivity_last_error, c.checked_at as connectivity_checked_at
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      LEFT JOIN node_connectivity c ON c.node_id=n.id
       WHERE n.source_id=?
       ORDER BY n.id DESC
     `).all(sourceId);
   } else {
     rows = db.prepare(`
-      SELECT n.*, s.name as source_name, s.source_type as source_type
-      FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+      SELECT n.*, s.name as source_name, s.source_type as source_type,
+             c.status as connectivity_status, c.latency_ms as connectivity_latency_ms,
+             c.last_error as connectivity_last_error, c.checked_at as connectivity_checked_at
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      LEFT JOIN node_connectivity c ON c.node_id=n.id
       ORDER BY n.id DESC
     `).all();
   }
@@ -668,6 +979,79 @@ app.get('/api/view/nodes', (req, res) => {
   res.json({ ok: true, nodes: rows, cached: false });
 });
 
+
+app.all('/panel-proxy/:sourceId/*', async (req, res) => {
+  try {
+    const sess = getSessionUser(req);
+    if (!sess) return res.status(401).send('unauthorized');
+
+    const sourceId = Number(req.params.sourceId || 0);
+    if (!Number.isFinite(sourceId) || sourceId <= 0) return res.status(400).send('bad source id');
+    const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
+    if (!source) return res.status(404).send('source not found');
+    if (String(source.source_type || 'sui_api') === 'local') return res.status(400).send('local source not supported');
+
+    const panelUrl = String(source.panel_url || '').trim();
+    if (!/^https?:\/\//i.test(panelUrl)) return res.status(400).send('invalid panel url');
+
+    const tail = String(req.params[0] || '');
+    const base = panelUrl.replace(/\/$/, '');
+    const target = new URL(`${base}/${tail}`);
+    const origQ = req.url.split('?')[1] || '';
+    if (origQ) target.search = origQ;
+
+    const reqMethod = String(req.method || 'GET').toUpperCase();
+    const blockedMethods = new Set(['TRACE', 'CONNECT']);
+    if (blockedMethods.has(reqMethod)) return res.status(405).send('method not allowed');
+
+    const inHeaders = req.headers || {};
+    const outHeaders = {};
+    const passHeaders = ['accept', 'accept-language', 'content-type', 'origin', 'referer', 'user-agent'];
+    for (const k of passHeaders) {
+      if (inHeaders[k]) outHeaders[k] = inHeaders[k];
+    }
+    const inCookie = filterProxyRequestCookie(inHeaders['cookie'] || '');
+    if (inCookie) outHeaders['cookie'] = inCookie;
+    if (String(source.panel_token || '').trim()) outHeaders['x-panel-token'] = String(source.panel_token || '').trim();
+
+    let body;
+    if (!['GET', 'HEAD'].includes(reqMethod)) body = await readRawBody(req);
+
+    const r = await fetch(target.toString(), {
+      method: reqMethod,
+      headers: outHeaders,
+      body,
+      redirect: 'manual'
+    });
+
+    res.status(r.status);
+
+    const ct = r.headers.get('content-type');
+    if (ct) res.setHeader('content-type', ct);
+    const loc = r.headers.get('location');
+    if (loc) {
+      try {
+        const abs = new URL(loc, target.toString());
+        const sameOrigin = abs.origin === new URL(panelUrl).origin;
+        if (sameOrigin) {
+          const proxied = `/panel-proxy/${sourceId}${abs.pathname}${abs.search || ''}${abs.hash || ''}`;
+          res.setHeader('location', proxied);
+        } else {
+          res.setHeader('location', abs.toString());
+        }
+      } catch {
+        res.setHeader('location', loc);
+      }
+    }
+    const setCookie = r.headers.raw && r.headers.raw()['set-cookie'] ? r.headers.raw()['set-cookie'] : [];
+    if (setCookie.length) res.setHeader('set-cookie', rewriteSetCookieForProxy(setCookie, sourceId));
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.send(buf);
+  } catch (e) {
+    res.status(502).send(`panel proxy error: ${e.message}`);
+  }
+});
 
 app.get('/api/view/bootstrap', (req, res) => {
   ensureLocalSource();
@@ -702,7 +1086,7 @@ app.get('/api/view/bootstrap', (req, res) => {
       source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
       node_ids: nodeIds,
       url: urlPath,
-      full_url: `${req.protocol}://${req.get('host')}${urlPath}`
+      full_url: `${getPublicBaseUrl(req)}${urlPath}`
     };
   });
 
@@ -753,7 +1137,7 @@ app.get('/api/view/subscriptions', (req, res) => {
       source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
       node_ids: nodeIds,
       url: urlPath,
-      full_url: `${req.protocol}://${req.get('host')}${urlPath}`
+      full_url: `${getPublicBaseUrl(req)}${urlPath}`
     };
   });
   cacheSet(key, out);
@@ -1500,12 +1884,20 @@ function detectDeviceHint(req, ua = '') {
 function recordSubscriptionLog(req, sub, routeType) {
   try {
     const ua = String(req.headers['user-agent'] || '');
+    const ip = detectClientIp(req);
+
+    // 过滤本机脚本探测流量，避免污染“真实订阅端”日志
+    const uaLower = ua.toLowerCase();
+    const isLocalIp = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    const isScriptProbe = uaLower.startsWith('python-requests/');
+    if (isLocalIp && isScriptProbe) return;
+
     db.prepare(`INSERT INTO subscription_logs(token,subscription_id,subscription_name,route_type,client_ip,user_agent,device_hint,created_at) VALUES(?,?,?,?,?,?,?,?)`).run(
       String(sub?.token || ''),
       Number(sub?.id || 0) || null,
       String(sub?.name || ''),
       String(routeType || 'unknown'),
-      detectClientIp(req),
+      ip,
       ua,
       detectDeviceHint(req, ua),
       now()

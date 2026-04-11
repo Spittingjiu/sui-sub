@@ -24,10 +24,13 @@
     .pill{padding:3px 8px;border-radius:999px;background:#1d2850;color:#eef2ff;display:inline-block;font-size:12px}
     table{width:100%;border-collapse:collapse;min-width:560px}
     td,th{border-bottom:1px solid #243055;padding:4px 2px;text-align:left;font-size:13px}
-    #nodes th:nth-child(1),#nodes td:nth-child(1){width:52px;padding-right:2px}
-    #nodes th:nth-child(2),#nodes td:nth-child(2){width:96px;padding-left:2px;padding-right:2px}
-    #nodes th:nth-child(3),#nodes td:nth-child(3){padding-left:2px;padding-right:1em;width:auto;white-space:nowrap}
-    #nodes th:nth-child(4),#nodes td:nth-child(4){width:68px;padding-left:1em;padding-right:1px;white-space:nowrap;text-align:left}
+    #nodes table{min-width:520px}
+    #nodes th:nth-child(1),#nodes td:nth-child(1){width:46px;padding-right:2px}
+    #nodes th:nth-child(2),#nodes td:nth-child(2){width:82px;padding-left:2px;padding-right:2px}
+    #nodes th:nth-child(3),#nodes td:nth-child(3){padding-left:2px;padding-right:4px;max-width:210px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #nodes th:nth-child(4),#nodes td:nth-child(4){width:92px;padding-left:4px;padding-right:4px;white-space:nowrap;text-align:left}
+    #nodes th:nth-child(5),#nodes td:nth-child(5){width:64px;white-space:nowrap}
+    #nodes th:nth-child(6),#nodes td:nth-child(6){width:170px;white-space:nowrap}
     .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6;color:#fff}
     .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:#1d2850;color:#eef2ff;font-size:12px}
     .sel-list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
@@ -91,7 +94,7 @@
         <div class="grid" style="margin-top:10px">
           <input id="name" placeholder="名称（例如：东京）"/>
           <input id="panel" placeholder="面板地址（https://panel.example.com）"/>
-          <input id="token" placeholder="SUI API Token"/>
+          <input id="token" placeholder="SUI API Token（或填 账号:密码）"/>
           <button onclick="addSource()">保存</button>
         </div>
         <div id="msg" class="muted" style="margin-top:8px"></div>
@@ -111,12 +114,14 @@
       <div class="card">
         <h3>节点列表（按源查看）</h3>
         <div class="row" style="margin-top:6px">
-          <select id="nodeSourceSelect" style="min-width:220px" onchange="setNodeSource(this.value)"></select>
+          <select id="nodeSourceSelect" style="min-width:150px;max-width:190px" onchange="setNodeSource(this.value)"></select>
+          <span id="kernelBadge" class="pill">测速内核：检测中…</span>
+          <button id="kernelToggleBtn" onclick="toggleKernelInstall()">加载中…</button>
           <input id="localNodeLink" placeholder="粘贴节点链接" style="min-width:320px;max-width:640px;flex:1 1 520px"/>
           <input id="localNodeName" placeholder="备注(可选)" style="min-width:86px;max-width:120px;flex:0 0 110px"/>
           <button id="addLocalBtn" onclick="addLocalNode()" style="margin-left:auto">添加本地节点</button>
         </div>
-        <div id="nodes" style="margin-top:8px"></div>
+        <div id="nodeMsg" class="muted" style="margin-top:6px"></div><div id="nodes" style="margin-top:6px;max-height:56vh;overflow:auto"></div>
       </div>
     </div>
 
@@ -169,7 +174,7 @@
     <div class="modal-box">
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">订阅二维码</h3><button onclick="closeLinkModal()">关闭</button></div>
       <div class="row" style="gap:8px;margin:8px 0 2px">
-        <button id="linkTabGeneral" class="tab-on" onclick="switchLinkTab('general')">Clash版</button>
+        <button id="linkTabGeneral" class="tab-on" onclick="switchLinkTab('general')">通用版</button>
       </div>
       <img id="linkQr" alt="订阅二维码" />
       <input id="linkText" readonly />
@@ -219,6 +224,7 @@ function switchTab(tab){
   try{ localStorage.setItem('sui_sub_last_tab', tab); }catch(_e){}
   q('#tab-home').classList.toggle('hide',tab!=='home'); q('#tab-nodes').classList.toggle('hide',tab!=='nodes'); q('#tab-sui').classList.toggle('hide',tab!=='sui'); q('#tab-user').classList.toggle('hide',tab!=='user');
   q('#tabHomeBtn').classList.toggle('tab-on',tab==='home'); q('#tabNodeBtn').classList.toggle('tab-on',tab==='nodes'); q('#tabSuiBtn').classList.toggle('tab-on',tab==='sui'); q('#tabUserBtn').classList.toggle('tab-on',tab==='user');
+  ['#kernelBadge','#kernelToggleBtn'].forEach(sel=>{const el=q(sel); if(el) el.style.display=(tab==='nodes')?'':'none';});
   if(tab==='sui') loadSuiNodes(); if(tab==='user') loadAdminUser();
 }
 
@@ -226,7 +232,17 @@ async function checkAuth(){const r=await fetch('/api/auth/me'); if(r.status===20
 async function login(){try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent='';checkAuth();}catch(e){q('#lmsg').textContent=e.message;}}
 async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});location.reload();}
 
-async function addSource(){try{await api('/api/sources',{method:'POST',body:JSON.stringify({name:q('#name').value.trim(),panel_url:q('#panel').value.trim(),panel_token:q('#token').value.trim()})});q('#name').value='';q('#panel').value='';q('#token').value='';toast('已保存，自动同步中…','ok');await refreshAll();}catch(e){toast(e.message,'err')}}
+async function addSource(){
+  try{
+    const name=q('#name').value.trim();
+    const panel_url=q('#panel').value.trim();
+    const panel_token=q('#token').value.trim();
+    await api('/api/sources',{method:'POST',body:JSON.stringify({name,panel_url,panel_token})});
+    q('#name').value='';q('#panel').value='';q('#token').value='';
+    toast('已保存，自动同步中…','ok');
+    await refreshAll();
+  }catch(e){toast(e.message,'err')}
+}
 async function editSourceName(id){
   const oldName=(sources.find(x=>Number(x.id)===Number(id))||{}).name||'';
   const name=(prompt('请输入新的源名称：',oldName)||'').trim();
@@ -245,12 +261,49 @@ function sourceSyncText(s){
 function renderSourcesUI(){
   const box=q('#sources');
   if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter(); return;}
-  box.innerHTML=orderedSources().map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`).join('');
+  box.innerHTML=orderedSources().map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':`<button onclick="openSecurePanel(${s.id})">安全访问</button><button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`).join('');
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
+function openSecurePanel(id){
+  const sid=Number(id)||0;
+  if(!sid) return;
+  window.open(`/panel-proxy/${sid}/`, '_blank', 'noopener');
+}
 
-async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();}
+let kernelInstalled=false;
+async function refreshKernelStatus(){
+  try{
+    const j=await api('/api/kernel/status');
+    kernelInstalled=!!j.installed;
+    const b=q('#kernelBadge'), btn=q('#kernelToggleBtn');
+    if(b) b.textContent=`测速内核：${kernelInstalled?'已安装':'未安装'}`;
+    if(btn) btn.textContent=kernelInstalled?'卸载内核':'安装内核';
+  }catch(e){
+    const b=q('#kernelBadge'), btn=q('#kernelToggleBtn');
+    if(b) b.textContent='测速内核：状态异常';
+    if(btn) btn.textContent='重试检测';
+  }
+}
+async function toggleKernelInstall(){
+  try{
+    const btn=q('#kernelToggleBtn'); if(btn) btn.disabled=true;
+    if(kernelInstalled){
+      await api('/api/kernel/uninstall',{method:'POST',body:'{}'});
+      toast('测速内核已卸载','ok');
+    }else{
+      await api('/api/kernel/install',{method:'POST',body:'{}'});
+      toast('测速内核已安装','ok');
+    }
+  }catch(e){
+    const nm=q('#nodeMsg'); if(nm){nm.className='err'; nm.textContent=e.message;}
+  }finally{
+    const btn=q('#kernelToggleBtn'); if(btn) btn.disabled=false;
+    await refreshKernelStatus();
+  }
+}
+
+async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const pageY=window.scrollY||0;const box=q('#nodes');const st=box?box.scrollTop:0;const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();const box2=q('#nodes');if(box2) box2.scrollTop=st;if(activeTab==='nodes') window.scrollTo(0,pageY);}
 function getLocalSourceId(){
   const src=sources.find(s=>isLocalSource(s));
   return src?String(src.id):'';
@@ -275,17 +328,41 @@ function renderNodeSourceSelect(){
   sel.value=has?String(sourceViewId):'all';
   setLocalAddVisible();
 }
-function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();setLocalAddVisible();loadNodes();}
+function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();setLocalAddVisible();const nm=q('#nodeMsg'); if(nm) nm.textContent='';loadNodes();}
+function connectivityCell(n){
+  const st=String(n.connectivity_status||'unknown');
+  if(st==='ok') return `<span class="ok">可用</span>`;
+  if(st==='testing') return `<span class="pill">检测中</span>`;
+  if(st==='disconnected' || st==='fail') return `<span class="err" title="${esc(n.connectivity_last_error||'')}">不可用</span>`;
+  return `<span class="muted">未检测</span>`;
+}
 function renderNodes(){
   const rows=allNodes, box=q('#nodes');
-  if(!rows.length){box.innerHTML='<div class=\"muted\">该源暂无节点</div>';return;}
-  box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
+  if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点</div>';return;}
+  box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th><button onclick="checkConnectivity()" title="点击检测当前列表连通性" style="padding:4px 8px">连通性</button></th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
     const isLocal=String(n.source_type||'sui_api')==='local';
     const op=isLocal
-      ? `<button onclick=\"toggleNode(${n.id})\">切换</button> <button onclick=\"renameNode(${n.id})\">改名</button> <button onclick=\"deleteLocalNode(${n.id})\">删除</button>`
-      : `<button onclick=\"toggleNode(${n.id})\">切换</button> <button onclick=\"renameNode(${n.id})\">改名</button>`;
-    return `<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${n.enabled?'<span class=\"ok\">启用</span>':'<span class=\"err\">禁用</span>'}</td><td>${op}</td></tr>`;
+      ? `<button onclick="toggleNode(${n.id})">切换</button> <button onclick="renameNode(${n.id})">改名</button> <button onclick="deleteLocalNode(${n.id})">删除</button>`
+      : `<button onclick="toggleNode(${n.id})">切换</button> <button onclick="renameNode(${n.id})">改名</button>`;
+    return `<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
   }).join('')}</tbody></table>`;
+}
+let checkingConnectivity=false;
+async function checkConnectivity(){
+  if(checkingConnectivity) return;
+  const nm=q('#nodeMsg');
+  try{
+    checkingConnectivity=true;
+    const sourceId=(sourceViewId==='all'?0:Number(sourceViewId)||0);
+    if(nm){nm.textContent='';}
+    await api('/api/nodes/connectivity/check',{method:'POST',body:JSON.stringify({sourceId,limit:20})});
+    await loadNodes();
+    if(nm){nm.textContent='';}
+  }catch(e){
+    if(nm){nm.className='err'; nm.textContent=e.message;}
+  }finally{
+    checkingConnectivity=false;
+  }
 }
 async function toggleNode(id){await api('/api/nodes/'+id+'/toggle',{method:'POST'});await loadNodes();}
 async function addLocalNode(){
@@ -483,8 +560,17 @@ function applyBootstrap(b){
 }
 
 async function refreshAll(){
+  const pageY=window.scrollY||0;
+  const nodeBox=q('#nodes');
+  const nodeScroll=nodeBox?nodeBox.scrollTop:0;
   const b=await api('/api/view/bootstrap');
   applyBootstrap(b);
+  await refreshKernelStatus();
+  if(activeTab==='nodes'){
+    const nb=q('#nodes');
+    if(nb) nb.scrollTop=nodeScroll;
+    window.scrollTo(0,pageY);
+  }
 }
 async function init(){
   let initialTab='home';
@@ -494,10 +580,6 @@ async function init(){
   }catch(_e){}
   switchTab(initialTab);
   await refreshAll();
-  setInterval(async()=>{
-    await api('/api/sources/sync-all',{method:'POST',body:'{}'}).catch(()=>{});
-    await refreshAll();
-  },60000)
   setInterval(async()=>{
     if(!q('#tab-user')?.classList.contains('hide')) await loadSubLogs();
   },5000)
