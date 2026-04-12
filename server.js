@@ -1015,7 +1015,14 @@ app.all('/panel-proxy/:sourceId/*', async (req, res) => {
     if (String(source.panel_token || '').trim()) outHeaders['x-panel-token'] = String(source.panel_token || '').trim();
 
     let body;
-    if (!['GET', 'HEAD'].includes(reqMethod)) body = await readRawBody(req);
+    if (!['GET', 'HEAD'].includes(reqMethod)) {
+      if (req.body !== undefined) {
+        if (Buffer.isBuffer(req.body)) body = req.body;
+        else if (typeof req.body === 'string') body = Buffer.from(req.body);
+        else if (req.body && typeof req.body === 'object') body = Buffer.from(JSON.stringify(req.body));
+      }
+      if (body === undefined) body = await readRawBody(req);
+    }
 
     const r = await fetch(target.toString(), {
       method: reqMethod,
