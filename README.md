@@ -1,40 +1,55 @@
 # sui-sub
 
-SUI 订阅管理站：支持多源 SUI 面板聚合、自动同步、节点选择式订阅、SUI 面板节点管理（一键 Reality / 删除节点）。
+**一个面向多服务器场景的 SUI 订阅编排与分发平台。**
 
-## 🚀 基于 SUI Panel 的订阅编排台
-`SUI Panel (sui)` 是本项目的必备基础层；`sui-sub` 基于其 API 提供订阅编排、策略分发与多端交付能力。
+`sui-sub` 让你把多台 `sui` 面板里的节点聚合到一个控制台，按需挑选节点，生成可直接导入客户端的订阅链接。
 
-架构职责：
-- `sui`：节点生命周期管理与运行维护
-- `sui-sub`：跨面板节点聚合、订阅策略编排、统一分发出口
+---
 
-适用场景：
-- 多台服务器 / 多套面板的节点统一管理
-- 按设备（手机 / 平板 / 电脑）下发差异化订阅组合
-- 将离散节点沉淀为可维护、可审计、可一键导入的订阅资产
+## Quick Overview
 
-先安装 SUI Panel（必需前置）：
-- 项目地址：https://github.com/Spittingjiu/sui
-- 一键安装：`bash <(curl -fsSL https://raw.githubusercontent.com/Spittingjiu/sui/main/install.sh)`
+| 能力 | 是否支持 |
+|---|:---:|
+| 多 SUI 源接入与统一管理 | ✅ |
+| 自动同步节点 | ✅ |
+| 安全访问上游面板（`/panel-proxy/:id/*`） | ✅ |
+| 节点级订阅编辑（按源/按节点组合） | ✅ |
+| 多订阅链接管理 | ✅ |
+| 本地节点手工录入 | ✅ |
+| SUI 管理页（一键 Reality / 节点操作） | ✅ |
 
-## Features
-- 登录鉴权（用户名/密码）
-- 多 SUI 源接入与自动同步
-- 节点级订阅编辑（弹窗多选节点）
-- 多订阅链接管理 + 一键导入
-- SUI 管理页：一键 Reality、删除节点
+---
 
-## Run
-```bash
-npm install
-npm start
-```
+## 它适合谁？
 
-默认端口：`8780`
+适合：
+- 有多台 VPS、多套 SUI 面板
+- 想把节点统一编排，再按设备分发订阅
+- 想减少手工复制链接、改名、对齐配置的重复劳动
 
-## Docker 安装
-### 方式1：Docker Compose（推荐）
+不适合：
+- 只维护单机单面板，且不需要订阅编排
+
+---
+
+## 与 SUI 的关系（重要）
+
+- `sui`：节点生命周期管理（创建、修改、运行）
+- `sui-sub`：聚合多个 `sui`，做订阅编排与统一分发
+
+先装 `sui`，再用 `sui-sub` 聚合分发。
+
+- SUI 项目地址：https://github.com/Spittingjiu/sui
+- SUI 一键安装：`bash <(curl -fsSL https://raw.githubusercontent.com/Spittingjiu/sui/main/install.sh)`
+
+---
+
+## 三步快速上手
+
+### 1) 安装并启动
+
+#### 方式 A：Docker Compose（推荐）
+
 ```bash
 mkdir -p /opt/sui-sub && cd /opt/sui-sub
 git clone https://github.com/Spittingjiu/sui-sub.git .
@@ -42,9 +57,10 @@ mkdir -p data
 docker compose up -d --build
 ```
 
-启动后访问：`http://服务器IP:8780`
+启动后访问：`http://<服务器IP>:8780`
 
-### 方式2：纯 Docker
+#### 方式 B：Docker
+
 ```bash
 docker build -t sui-sub:latest .
 docker run -d \
@@ -59,8 +75,100 @@ docker run -d \
   sui-sub:latest
 ```
 
-## Env
-- `SUI_SUB_USER` 默认 `admin`
-- `SUI_SUB_PASS` 默认 `admin123`
-- `SUI_SUB_SESSION_SECRET` 会话签名密钥（务必修改）
-- `SUI_SUB_SYNC_MS` 自动同步间隔（毫秒，默认 5 分钟）
+#### 方式 C：Node 原生运行
+
+```bash
+npm install
+npm start
+```
+
+默认端口：`8780`
+
+---
+
+### 2) 首次登录
+
+使用环境变量里的账号密码登录（默认 `admin / admin123`）。
+
+> 建议上线后第一时间修改默认密码与 `SUI_SUB_SESSION_SECRET`。
+
+---
+
+### 3) 添加 SUI 源并生成订阅
+
+1. 进入“源”页，填写：
+   - 名称
+   - 面板地址（如 `http://x.x.x.x:12345`）
+   - Token（也可填 `用户名:密码`，系统会自动换取 token）
+2. 保存后自动同步节点
+3. 在“节点&订阅”里选择节点，创建订阅
+4. 复制订阅链接导入客户端
+
+---
+
+## 安全访问（推荐）
+
+`sui-sub` 支持从源列表点击“安全访问”，通过：
+
+`/panel-proxy/:sourceId/*`
+
+反向代理访问上游 SUI 面板，统一从 `sui-sub` 域名入口操作，减少直接暴露上游面板地址的需求。
+
+### 常见问题
+
+- **点登录没反应**：先强刷（Ctrl+F5）再试；确认源页面已更新到新前端。
+- **提示 non-json response**：通常是路径前缀或代理链路问题，优先检查 `/panel-proxy/:id` 路径。
+- **账号不对**：SUI 登录账号以目标 SUI 面板本身配置为准，不是 sub 账号。
+
+---
+
+## 主要能力说明
+
+- 多源聚合：统一查看多个 SUI 面板的节点
+- 自动同步：按配置间隔拉取上游节点
+- 本地节点：支持手工录入节点并纳入订阅
+- 节点编辑：节点重命名、开关、按源筛选
+- 订阅编排：按节点组合输出多条订阅链接
+- SUI 管理：在 sub 中直接执行部分 SUI 管理动作
+
+---
+
+## 环境变量
+
+- `PORT`：服务端口（默认 `8780`）
+- `SUI_SUB_USER`：管理账号（默认 `admin`）
+- `SUI_SUB_PASS`：管理密码（默认 `admin123`）
+- `SUI_SUB_SESSION_SECRET`：会话签名密钥（**务必修改**）
+- `SUI_SUB_SYNC_MS`：自动同步间隔（毫秒，默认 `300000`）
+
+---
+
+## 目录说明
+
+- `server.js`：后端 API 与业务逻辑
+- `public/`：前端页面
+- `data/`：数据库与运行数据（需持久化）
+- `scripts/`：运维与回归脚本
+
+---
+
+## 回归检查（推荐）
+
+新增了 Sprint A 冒烟脚本，用于发布前快速确认关键链路可用：
+
+```bash
+# 检查 sub 登录 + 安全访问代理登录链路
+SUB_BASE=http://127.0.0.1:8780 \
+SUB_USER=你的sub账号 \
+SUB_PASS=你的sub密码 \
+SOURCE_ID=7 \
+bash scripts/sprint-a-proxy-smoke.sh
+```
+
+通过后再发布，可显著降低回归风险。
+
+---
+
+## License
+
+GPL-3.0
