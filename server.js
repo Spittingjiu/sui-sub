@@ -1623,6 +1623,16 @@ function collectProxyServerPolicyDomains(proxies = []) {
   return [...out].sort();
 }
 
+function ensureSteamGroupDirect(cfg) {
+  if (!isPlainObject(cfg) || !Array.isArray(cfg['proxy-groups'])) return;
+  for (const g of cfg['proxy-groups']) {
+    if (!g || typeof g !== 'object') continue;
+    if (String(g.name || '') !== 'Steam') continue;
+    if (!Array.isArray(g.proxies)) g.proxies = [];
+    if (!g.proxies.includes('DIRECT')) g.proxies.unshift('DIRECT');
+  }
+}
+
 function enforceDomainRuleProviders(cfg) {
   if (!isPlainObject(cfg) || !isPlainObject(cfg['rule-providers'])) return;
   const providers = cfg['rule-providers'];
@@ -1855,6 +1865,9 @@ async function buildClashConfigByLinks(links = []) {
   const remoteBase = await loadRemoteClashTemplate({ forceRefresh: true });
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
+
+  // Steam 组确保保留 DIRECT 选项（模板有时会被旧缓存版本覆盖）。
+  ensureSteamGroupDirect(cfg);
 
   // 规则性能优化：仅对可确认的 http 规则集切换为 behavior=domain。
   enforceDomainRuleProviders(cfg);
