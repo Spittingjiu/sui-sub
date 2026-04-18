@@ -1662,6 +1662,21 @@ function toDomainListPath(pathStr = '') {
   return out;
 }
 
+function collectProxyServerPolicyDomains(proxies = []) {
+  const out = new Set();
+  for (const p of proxies) {
+    if (!p || typeof p !== 'object') continue;
+    const host = String(p.server || '').trim().toLowerCase();
+    if (!host) continue;
+    // 跳过 IP，仅收集域名
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) continue;
+    if (host.includes(':')) continue; // 粗略跳过 ipv6
+    if (!/^[a-z0-9.-]+$/.test(host) || !host.includes('.')) continue;
+    out.add(`+.${host}`);
+  }
+  return [...out].sort();
+}
+
 function enforceDomainRuleProviders(cfg) {
   if (!isPlainObject(cfg) || !isPlainObject(cfg['rule-providers'])) return;
   const providers = cfg['rule-providers'];
@@ -1810,9 +1825,7 @@ async function buildClashConfigByLinks(links = []) {
       nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
       'proxy-server-nameserver-policy': {
-        '+.cn': ['223.5.5.5', '119.29.29.29'],
-        '+.zzao.de': ['223.5.5.5', '119.29.29.29'],
-        '+.fengqi0216.top': ['223.5.5.5', '119.29.29.29']
+        'geosite:cn': ['223.5.5.5', '119.29.29.29']
       },
       'direct-nameserver': ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
       'direct-nameserver-follow-policy': true,
@@ -1898,6 +1911,17 @@ async function buildClashConfigByLinks(links = []) {
 
   // 规则性能优化：仅对可确认的 http 规则集切换为 behavior=domain。
   enforceDomainRuleProviders(cfg);
+
+  // proxy-server-nameserver-policy：固定 geosite:cn，其余按当前订阅实际节点域名动态注入。
+  if (cfg && typeof cfg === 'object') {
+    if (!cfg.dns || typeof cfg.dns !== 'object') cfg.dns = {};
+    const fixed = { 'geosite:cn': ['223.5.5.5', '119.29.29.29'] };
+    const dynamicPolicy = {};
+    for (const d of collectProxyServerPolicyDomains(proxies)) {
+      dynamicPolicy[d] = ['223.5.5.5', '119.29.29.29'];
+    }
+    cfg.dns['proxy-server-nameserver-policy'] = { ...fixed, ...dynamicPolicy };
+  }
 
   // 兼容异常模板：rule-providers.path 不允许带 query（会导致规则集加载失败）
   if (cfg && typeof cfg === 'object' && cfg['rule-providers'] && typeof cfg['rule-providers'] === 'object') {
