@@ -26,6 +26,8 @@ const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
 const SINGBOX_TEMPLATE_FILE = process.env.SUI_SUB_SINGBOX_TEMPLATE_FILE || path.join(__dirname, 'templates', 'singbox-template.json');
+const SUI_SUB_SINGBOX_TEMPLATE_URL = process.env.SUI_SUB_SINGBOX_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/singbox-template.json';
+const SINGBOX_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_SINGBOX_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
 
 
 
@@ -1999,14 +2001,55 @@ function clashProxyToSingboxOutbound(p) {
   return null;
 }
 
-function loadSingboxTemplate() {
+let singboxTemplateCache = { at: 0, data: null, url: '' };
+
+async function loadRemoteSingboxTemplate({ forceRefresh = false } = {}) {
+  const nowTs = Date.now();
+  const templateUrl = String(SUI_SUB_SINGBOX_TEMPLATE_URL || '').trim();
+  if (!templateUrl) return null;
+
+  const sameUrl = singboxTemplateCache.url === templateUrl;
+  const canUseCache = sameUrl && singboxTemplateCache.data && (nowTs - singboxTemplateCache.at) < SINGBOX_TEMPLATE_CACHE_MS;
+  if (!forceRefresh && canUseCache) return singboxTemplateCache.data;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const url = forceRefresh
+      ? `${templateUrl}${templateUrl.includes('?') ? '&' : '?'}_ts=${Date.now()}`
+      : templateUrl;
+
+    const resp = await fetch(url, {
+      headers: {
+        'accept': 'application/json,text/plain,*/*',
+        'cache-control': 'no-cache'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) throw new Error(`http ${resp.status}`);
+    const text = await resp.text();
+    const obj = JSON.parse(text);
+    if (!isPlainObject(obj)) throw new Error('json template is not object');
+
+    singboxTemplateCache = { at: nowTs, data: obj, url: templateUrl };
+    return obj;
+  } catch (e) {
+    console.warn('[singbox-template] remote refresh failed, fallback local/built-in:', e?.message || e);
+    if (singboxTemplateCache.data) return singboxTemplateCache.data;
+    return null;
+  }
+}
+
+function loadLocalSingboxTemplate() {
   try {
     if (!fs.existsSync(SINGBOX_TEMPLATE_FILE)) return null;
     const txt = fs.readFileSync(SINGBOX_TEMPLATE_FILE, 'utf8');
     const obj = JSON.parse(txt);
     return isPlainObject(obj) ? obj : null;
   } catch (e) {
-    console.warn('[singbox-template] load failed, fallback built-in:', e?.message || e);
+    console.warn('[singbox-template] local load failed:', e?.message || e);
     return null;
   }
 }
@@ -2093,8 +2136,9 @@ async function buildSingboxConfigByLinks(links = []) {
     }
   };
 
-  const template = loadSingboxTemplate();
-  const base = template || builtInBase;
+  const remoteTemplate = await loadRemoteSingboxTemplate({ forceRefresh: true });
+  const localTemplate = remoteTemplate ? null : loadLocalSingboxTemplate();
+  const base = remoteTemplate || localTemplate || builtInBase;
   const cfg = {
     ...base,
     outbounds,

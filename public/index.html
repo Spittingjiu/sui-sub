@@ -489,11 +489,10 @@ function renderSubsUI(arr){
     const singboxUrl = full.endsWith('/singbox') ? full : `${full}/singbox`;
     const clashImportUri=`clash://install-config?url=${encodeURIComponent(clashUrl)}&name=${encodeURIComponent((s.name||'sui-sub')+'-Clash版')}`;
     const row=document.createElement('div');row.className='src-item';
-    row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="copy-singbox">复制singBox</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
+    row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
     row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri, singboxUrl);
     row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri, singboxUrl);
-    row.querySelector('[data-act="copy-singbox"]').onclick=()=>openLinkModal(singboxUrl, '', singboxUrl);
     row.querySelector('[data-act="edit"]').onclick=()=>openSubModal(s);
     row.querySelector('[data-act="delete"]').onclick=()=>deleteSub(s.id);
     box.appendChild(row);
