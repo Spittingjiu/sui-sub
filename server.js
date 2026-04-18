@@ -27,9 +27,6 @@ const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'ht
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
 
 
-const IPINFO_TOKEN = process.env.SUI_SUB_IPINFO_TOKEN || '';
-const GEOIP_CACHE = new Map();
-const GEOIP_TTL_MS = 6 * 60 * 60 * 1000;
 
 const MIHOMO_BIN = '/usr/local/bin/mihomo';
 const MIHOMO_TMP = path.join(__dirname, 'data', 'mihomo-install');
@@ -1402,45 +1399,6 @@ function normalizeNodeName(name = '') {
 }
 
 
-async function getCountryByIp(ip) {
-  const v4 = String(ip || '').trim();
-  if (!v4 || /[^0-9.]/.test(v4)) return null;
-  const nowTs = Date.now();
-  const hit = GEOIP_CACHE.get(v4);
-  if (hit && hit.exp > nowTs) return hit.country;
-  let country = null;
-  try {
-    if (IPINFO_TOKEN) {
-      const r = await fetch(`https://ipinfo.io/${v4}/json?token=${IPINFO_TOKEN}`, { timeout: 5000 });
-      if (r.ok) {
-        const j = await r.json();
-        country = String(j.country || '').toUpperCase() || null;
-      }
-    }
-  } catch {}
-  try {
-    if (!country) {
-      const r = await fetch(`http://ip-api.com/json/${v4}?fields=countryCode,status`, { timeout: 5000 });
-      if (r.ok) {
-        const j = await r.json();
-        const t = String(j.countryCode || '').trim().toUpperCase();
-        if (/^[A-Z]{2}$/.test(t)) country = t;
-      }
-    }
-  } catch {}
-  GEOIP_CACHE.set(v4, { country, exp: nowTs + GEOIP_TTL_MS });
-  return country;
-}
-
-async function pickUsNodesByIp(proxies = []) {
-  const out = [];
-  for (const p of proxies) {
-    const ip = String(p.server || '');
-    const c = await getCountryByIp(ip);
-    if (c === 'US') out.push(p.name);
-  }
-  return out;
-}
 
 function uniqNameFactory() {
   const seen = new Map();
@@ -1625,19 +1583,6 @@ function toYaml(v, indent = 0) {
 
 function isPlainObject(x) {
   return x && typeof x === 'object' && !Array.isArray(x);
-}
-
-function deepMerge(base, override) {
-  if (!isPlainObject(base) || !isPlainObject(override)) return override;
-  const out = { ...base };
-  for (const [k, v] of Object.entries(override)) {
-    if (isPlainObject(v) && isPlainObject(out[k])) {
-      out[k] = deepMerge(out[k], v);
-    } else {
-      out[k] = v;
-    }
-  }
-  return out;
 }
 
 let clashTemplateCache = { at: 0, data: null, url: '' };
@@ -1902,7 +1847,7 @@ async function buildClashConfigByLinks(links = []) {
   };
 
   const dynamicPart = {
-    // 仅注入节点；其余（策略组/规则/DNS等）完全由模板决定
+    // 注入节点；DNS 中 proxy-server-nameserver-policy 由下方逻辑按当前节点动态覆盖
     proxies
   };
 
