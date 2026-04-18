@@ -1623,32 +1623,6 @@ function collectProxyServerPolicyDomains(proxies = []) {
   return [...out].sort();
 }
 
-function ensureSteamDirectRules(cfg) {
-  if (!isPlainObject(cfg)) return;
-  if (!isPlainObject(cfg['rule-providers'])) cfg['rule-providers'] = {};
-  cfg['rule-providers'].steam = {
-    type: 'http',
-    behavior: 'classical',
-    format: 'yaml',
-    url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Steam/Steam.yaml',
-    path: './ruleset/blackmatrix7/Steam.yaml',
-    interval: 86400
-  };
-
-  if (!Array.isArray(cfg.rules)) cfg.rules = [];
-  const withoutSteam = cfg.rules.filter(x => !String(x).includes('RULE-SET,steam,'));
-
-  // 放在 proxy 前，确保 Steam 固定直连。
-  const proxyIdx = withoutSteam.findIndex(x => String(x).startsWith('RULE-SET,proxy,'));
-  const steamRule = 'RULE-SET,steam,DIRECT';
-  if (proxyIdx >= 0) {
-    withoutSteam.splice(proxyIdx, 0, steamRule);
-  } else {
-    withoutSteam.push(steamRule);
-  }
-  cfg.rules = withoutSteam;
-}
-
 function enforceDomainRuleProviders(cfg) {
   if (!isPlainObject(cfg) || !isPlainObject(cfg['rule-providers'])) return;
   const providers = cfg['rule-providers'];
@@ -1846,7 +1820,7 @@ async function buildClashConfigByLinks(links = []) {
       youtube: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml', path: './ruleset/blackmatrix7/YouTube.yaml', interval: 86400 },
       telegram: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml', path: './ruleset/blackmatrix7/Telegram.yaml', interval: 86400 },
       google: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml', path: './ruleset/blackmatrix7/Google.yaml', interval: 86400 },
-      steam: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Steam/Steam.yaml', path: './ruleset/blackmatrix7/Steam.yaml', interval: 86400 },
+
       my_proxylist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_proxylist.yaml', path: './ruleset/custom/my_proxylist.yaml', interval: 86400 },
       my_whitelist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.yaml', path: './ruleset/custom/my_whitelist.yaml', interval: 86400 },
       private: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Lan/Lan.yaml', path: './ruleset/blackmatrix7/Lan.yaml', interval: 86400 },
@@ -1864,7 +1838,6 @@ async function buildClashConfigByLinks(links = []) {
       'RULE-SET,youtube,YouTube分流',
       'RULE-SET,telegram,Telegram分流',
       'RULE-SET,google,Google',
-      'RULE-SET,steam,DIRECT',
       'RULE-SET,proxy,节点选择',
       'GEOSITE,geolocation-!cn,节点选择',
       'RULE-SET,direct,DIRECT',
@@ -1882,9 +1855,6 @@ async function buildClashConfigByLinks(links = []) {
   const remoteBase = await loadRemoteClashTemplate({ forceRefresh: true });
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
-
-  // 确保 Steam 规则集存在且固定走直连。
-  ensureSteamDirectRules(cfg);
 
   // 规则性能优化：仅对可确认的 http 规则集切换为 behavior=domain。
   enforceDomainRuleProviders(cfg);
