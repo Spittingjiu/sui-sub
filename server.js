@@ -1643,8 +1643,7 @@ function deepMerge(base, override) {
 let clashTemplateCache = { at: 0, data: null, url: '' };
 
 const DOMAIN_BEHAVIOR_FORCE_KEYS = new Set([
-  'reject', 'direct', 'proxy', 'openai', 'anthropic', 'youtube', 'telegram', 'google', 'private',
-  'my_proxylist', 'my_whitelist'
+  'reject', 'direct', 'proxy', 'openai', 'anthropic', 'youtube', 'telegram', 'google', 'private'
 ]);
 
 function toDomainListUrl(url = '') {
@@ -1683,6 +1682,25 @@ function enforceDomainRuleProviders(cfg) {
     if (String(rp.type || '').toLowerCase() !== 'http') continue;
 
     const key = String(name || '').toLowerCase();
+
+    // custom 规则固定使用 classical/yaml，确保规则类型语义稳定。
+    if (key === 'my_proxylist' || key === 'my_whitelist') {
+      rp.behavior = 'classical';
+      rp.format = 'yaml';
+      if (typeof rp.url === 'string' && rp.url) {
+        rp.url = String(rp.url).replace(/\.list(\?.*)?$/i, '.yaml$1');
+        if (customRulesRev) {
+          rp.url = rp.url.replace(/([?&])v=[^&]*/g, '').replace(/[?&]$/, '');
+          const hasQ = rp.url.includes('?');
+          rp.url = `${rp.url}${hasQ ? '&' : '?'}v=${customRulesRev}`;
+        }
+      }
+      if (typeof rp.path === 'string' && rp.path) {
+        rp.path = String(rp.path).replace(/\.list(\?.*)?$/i, '.yaml$1');
+      }
+      continue;
+    }
+
     const inForceList = DOMAIN_BEHAVIOR_FORCE_KEYS.has(key);
     const classicalUrlHint = /_Classical\.yaml/i.test(String(rp.url || ''));
 
@@ -1694,11 +1712,6 @@ function enforceDomainRuleProviders(cfg) {
 
     if (typeof rp.url === 'string' && rp.url) {
       rp.url = toDomainListUrl(rp.url);
-      if ((key === 'my_proxylist' || key === 'my_whitelist') && customRulesRev) {
-        rp.url = rp.url.replace(/([?&])v=[^&]*/g, '').replace(/[?&]$/, '');
-        const hasQ = rp.url.includes('?');
-        rp.url = `${rp.url}${hasQ ? '&' : '?'}v=${customRulesRev}`;
-      }
     }
     if (typeof rp.path === 'string' && rp.path) {
       rp.path = toDomainListPath(rp.path);
@@ -1848,8 +1861,8 @@ async function buildClashConfigByLinks(links = []) {
       youtube: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml', path: './ruleset/blackmatrix7/YouTube.yaml', interval: 86400 },
       telegram: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml', path: './ruleset/blackmatrix7/Telegram.yaml', interval: 86400 },
       google: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml', path: './ruleset/blackmatrix7/Google.yaml', interval: 86400 },
-      my_proxylist: { type: 'http', behavior: 'domain', format: 'text', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_proxylist.list', path: './ruleset/custom/my_proxylist.list', interval: 86400 },
-      my_whitelist: { type: 'http', behavior: 'domain', format: 'text', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.list', path: './ruleset/custom/my_whitelist.list', interval: 86400 },
+      my_proxylist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_proxylist.yaml', path: './ruleset/custom/my_proxylist.yaml', interval: 86400 },
+      my_whitelist: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.yaml', path: './ruleset/custom/my_whitelist.yaml', interval: 86400 },
       private: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Lan/Lan.yaml', path: './ruleset/blackmatrix7/Lan.yaml', interval: 86400 },
       cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
