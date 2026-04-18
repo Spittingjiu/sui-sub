@@ -25,6 +25,7 @@ const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
+const SINGBOX_TEMPLATE_FILE = process.env.SUI_SUB_SINGBOX_TEMPLATE_FILE || path.join(__dirname, 'templates', 'singbox-template.json');
 
 
 
@@ -1882,7 +1883,230 @@ async function buildClashConfigByLinks(links = []) {
     return toYaml(cfg) + '\n';
 }
 
+function uniqStrings(arr = []) {
+  return [...new Set((arr || []).map(x => String(x || '').trim()).filter(Boolean))];
+}
 
+function clashProxyToSingboxOutbound(p) {
+  if (!p || typeof p !== 'object') return null;
+  const tag = String(p.name || '').trim();
+  if (!tag) return null;
+
+  if (p.type === 'vmess') {
+    const out = {
+      type: 'vmess',
+      tag,
+      server: p.server,
+      server_port: Number(p.port || 0),
+      uuid: p.uuid,
+      security: p.cipher || 'auto',
+      alter_id: Number(p.alterId || 0)
+    };
+    if (!out.server || !out.server_port || !out.uuid) return null;
+    if (p.tls) {
+      out.tls = {
+        enabled: true,
+        server_name: p.servername || p.server
+      };
+    }
+    if (p['ws-opts']) {
+      out.transport = {
+        type: 'ws',
+        path: p['ws-opts']?.path || '/',
+        headers: p['ws-opts']?.headers || {}
+      };
+    }
+    return out;
+  }
+
+  if (p.type === 'vless') {
+    const out = {
+      type: 'vless',
+      tag,
+      server: p.server,
+      server_port: Number(p.port || 0),
+      uuid: p.uuid
+    };
+    if (!out.server || !out.server_port || !out.uuid) return null;
+    if (p.flow) out.flow = p.flow;
+    if (p.tls) {
+      out.tls = {
+        enabled: true,
+        server_name: p.servername || p.server
+      };
+      if (p['client-fingerprint']) {
+        out.tls.utls = {
+          enabled: true,
+          fingerprint: p['client-fingerprint']
+        };
+      }
+      if (p['reality-opts']?.['public-key']) {
+        out.tls.reality = {
+          enabled: true,
+          public_key: p['reality-opts']['public-key'],
+          short_id: p['reality-opts']['short-id'] || ''
+        };
+      }
+    }
+    if (p['ws-opts']) {
+      out.transport = {
+        type: 'ws',
+        path: p['ws-opts']?.path || '/',
+        headers: p['ws-opts']?.headers || {}
+      };
+    }
+    return out;
+  }
+
+  if (p.type === 'trojan') {
+    const out = {
+      type: 'trojan',
+      tag,
+      server: p.server,
+      server_port: Number(p.port || 0),
+      password: p.password
+    };
+    if (!out.server || !out.server_port || !out.password) return null;
+    if (p.tls) {
+      out.tls = {
+        enabled: true,
+        server_name: p.sni || p.server
+      };
+    }
+    if (p['ws-opts']) {
+      out.transport = {
+        type: 'ws',
+        path: p['ws-opts']?.path || '/',
+        headers: p['ws-opts']?.headers || {}
+      };
+    }
+    return out;
+  }
+
+  if (p.type === 'ss') {
+    const out = {
+      type: 'shadowsocks',
+      tag,
+      server: p.server,
+      server_port: Number(p.port || 0),
+      method: p.cipher,
+      password: p.password
+    };
+    if (!out.server || !out.server_port || !out.method || !out.password) return null;
+    return out;
+  }
+
+  return null;
+}
+
+function loadSingboxTemplate() {
+  try {
+    if (!fs.existsSync(SINGBOX_TEMPLATE_FILE)) return null;
+    const txt = fs.readFileSync(SINGBOX_TEMPLATE_FILE, 'utf8');
+    const obj = JSON.parse(txt);
+    return isPlainObject(obj) ? obj : null;
+  } catch (e) {
+    console.warn('[singbox-template] load failed, fallback built-in:', e?.message || e);
+    return null;
+  }
+}
+
+function buildSingboxRouteRules() {
+  return [
+    { ip_is_private: true, action: 'route', outbound: 'DIRECT' },
+    { domain_suffix: ['lan', 'local', 'localhost'], action: 'route', outbound: 'DIRECT' },
+
+    { domain_suffix: ['openai.com', 'oaistatic.com', 'oaiusercontent.com'], action: 'route', outbound: 'AI分流' },
+    { domain_suffix: ['anthropic.com', 'claude.ai'], action: 'route', outbound: 'AI分流' },
+
+    { domain_suffix: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'], action: 'route', outbound: 'YouTube分流' },
+    { domain_suffix: ['telegram.org', 't.me', 'tdesktop.com'], action: 'route', outbound: 'Telegram分流' },
+    { domain_suffix: ['google.com', 'gstatic.com', 'googleapis.com', 'googleusercontent.com'], action: 'route', outbound: 'Google' },
+
+    { domain_suffix: ['cn', 'qq.com', 'wechat.com', 'weixin.qq.com'], action: 'route', outbound: 'DIRECT' }
+  ];
+}
+
+async function buildSingboxConfigByLinks(links = []) {
+  const uniq = uniqNameFactory();
+  const clashProxies = [];
+  for (const raw of links) {
+    const p = parseLinkToClashProxy(raw, uniq);
+    if (p) clashProxies.push(p);
+  }
+
+  const nodeOutbounds = clashProxies.map(clashProxyToSingboxOutbound).filter(Boolean);
+  const nodeTags = uniqStrings(nodeOutbounds.map(x => x.tag));
+  const autoCandidates = nodeTags.length ? nodeTags : ['DIRECT'];
+
+  const selectorNode = uniqStrings([...nodeTags, '自动选择', 'DIRECT']);
+  const selectorManual = uniqStrings([...nodeTags, '自动选择', 'DIRECT']);
+  const selectorSingle = uniqStrings([...nodeTags, 'DIRECT']);
+  const selectorAi = uniqStrings([...nodeTags, '节点选择', '自动选择', 'DIRECT']);
+  const selectorYoutube = uniqStrings([...nodeTags, '节点选择', '自动选择', 'DIRECT']);
+  const selectorTelegram = uniqStrings([...nodeTags, '节点选择', '自动选择', 'DIRECT']);
+  const selectorGoogle = uniqStrings([...nodeTags, '节点选择', '自动选择', 'DIRECT']);
+
+  const outbounds = [
+    ...nodeOutbounds,
+    {
+      type: 'urltest',
+      tag: '自动选择',
+      outbounds: autoCandidates,
+      url: 'https://cp.cloudflare.com/generate_204',
+      interval: '10m',
+      tolerance: 100
+    },
+    { type: 'selector', tag: '节点选择', outbounds: selectorNode, default: '自动选择' },
+    { type: 'selector', tag: '手动选择', outbounds: selectorManual, default: '自动选择' },
+    { type: 'selector', tag: '独立选择', outbounds: selectorSingle, default: 'DIRECT' },
+    { type: 'selector', tag: 'AI分流', outbounds: selectorAi, default: '节点选择' },
+    { type: 'selector', tag: 'YouTube分流', outbounds: selectorYoutube, default: '节点选择' },
+    { type: 'selector', tag: 'Telegram分流', outbounds: selectorTelegram, default: '节点选择' },
+    { type: 'selector', tag: 'Google', outbounds: selectorGoogle, default: '节点选择' },
+    { type: 'direct', tag: 'DIRECT' },
+    { type: 'block', tag: 'REJECT' }
+  ];
+
+  const builtInBase = {
+    log: { level: 'info' },
+    dns: {
+      servers: [
+        { tag: 'dns-direct', address: 'https://dns.alidns.com/dns-query', detour: 'DIRECT' },
+        { tag: 'dns-remote', address: 'https://1.1.1.1/dns-query', detour: '节点选择' }
+      ],
+      rules: [
+        { domain_suffix: ['cn', 'qq.com', 'wechat.com', 'weixin.qq.com'], server: 'dns-direct' }
+      ],
+      final: 'dns-remote',
+      strategy: 'prefer_ipv4'
+    },
+    route: {
+      auto_detect_interface: true,
+      rules: buildSingboxRouteRules(),
+      final: '节点选择'
+    },
+    experimental: {
+      clash_api: {
+        external_controller: '127.0.0.1:9090'
+      }
+    }
+  };
+
+  const template = loadSingboxTemplate();
+  const base = template || builtInBase;
+  const cfg = {
+    ...base,
+    outbounds,
+    route: {
+      ...(isPlainObject(base.route) ? base.route : {}),
+      rules: (Array.isArray(base?.route?.rules) && base.route.rules.length) ? base.route.rules : buildSingboxRouteRules(),
+      final: String(base?.route?.final || '节点选择')
+    }
+  };
+
+  return JSON.stringify(cfg, null, 2) + '\n';
+}
 
 
 
@@ -2006,6 +2230,26 @@ app.get('/api/sub/:token/clash', async (req, res) => {
   const yaml = await buildClashConfigByLinks(links || []);
   res.setHeader('content-type', 'text/yaml; charset=utf-8');
   res.send(yaml);
+});
+
+app.get('/sub/:token/singbox', async (req, res) => {
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'singbox-compat');
+  const json = await buildSingboxConfigByLinks(links || []);
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+  res.send(json);
+});
+
+app.get('/api/sub/:token/singbox', async (req, res) => {
+  const sub = getSubByToken(req.params.token);
+  if (!sub) return res.status(404).send('not found');
+  const links = getSubNodeLinksBySub(sub);
+  recordSubscriptionLog(req, sub, 'singbox-api-compat');
+  const json = await buildSingboxConfigByLinks(links || []);
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+  res.send(json);
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

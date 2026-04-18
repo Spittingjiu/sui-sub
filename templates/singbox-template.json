@@ -1,0 +1,113 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-direct",
+        "address": "https://dns.alidns.com/dns-query",
+        "detour": "DIRECT"
+      },
+      {
+        "tag": "dns-remote",
+        "address": "https://1.1.1.1/dns-query",
+        "detour": "节点选择"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          "cn",
+          "qq.com",
+          "wechat.com",
+          "weixin.qq.com"
+        ],
+        "server": "dns-direct"
+      }
+    ],
+    "final": "dns-remote",
+    "strategy": "prefer_ipv4"
+  },
+  "route": {
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "DIRECT"
+      },
+      {
+        "domain_suffix": [
+          "lan",
+          "local",
+          "localhost"
+        ],
+        "action": "route",
+        "outbound": "DIRECT"
+      },
+      {
+        "domain_suffix": [
+          "openai.com",
+          "oaistatic.com",
+          "oaiusercontent.com"
+        ],
+        "action": "route",
+        "outbound": "AI分流"
+      },
+      {
+        "domain_suffix": [
+          "anthropic.com",
+          "claude.ai"
+        ],
+        "action": "route",
+        "outbound": "AI分流"
+      },
+      {
+        "domain_suffix": [
+          "youtube.com",
+          "youtu.be",
+          "googlevideo.com",
+          "ytimg.com"
+        ],
+        "action": "route",
+        "outbound": "YouTube分流"
+      },
+      {
+        "domain_suffix": [
+          "telegram.org",
+          "t.me",
+          "tdesktop.com"
+        ],
+        "action": "route",
+        "outbound": "Telegram分流"
+      },
+      {
+        "domain_suffix": [
+          "google.com",
+          "gstatic.com",
+          "googleapis.com",
+          "googleusercontent.com"
+        ],
+        "action": "route",
+        "outbound": "Google"
+      },
+      {
+        "domain_suffix": [
+          "cn",
+          "qq.com",
+          "wechat.com",
+          "weixin.qq.com"
+        ],
+        "action": "route",
+        "outbound": "DIRECT"
+      }
+    ],
+    "final": "节点选择"
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090"
+    }
+  }
+}
