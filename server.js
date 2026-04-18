@@ -1642,6 +1642,55 @@ function deepMerge(base, override) {
 
 let clashTemplateCache = { at: 0, data: null, url: '' };
 
+const DOMAIN_BEHAVIOR_FORCE_KEYS = new Set([
+  'reject', 'direct', 'proxy', 'openai', 'anthropic', 'youtube', 'telegram', 'google', 'private'
+]);
+
+function toDomainListUrl(url = '') {
+  if (!url) return '';
+  let out = String(url);
+  out = out.replace(/_Classical\.yaml(\?.*)?$/i, '.list$1');
+  out = out.replace(/\.yaml(\?.*)?$/i, '.list$1');
+  return out;
+}
+
+function toDomainListPath(pathStr = '') {
+  if (!pathStr) return '';
+  let out = String(pathStr);
+  out = out.replace(/_Classical\.yaml(\?.*)?$/i, '.list$1');
+  out = out.replace(/\.yaml(\?.*)?$/i, '.list$1');
+  return out;
+}
+
+function enforceDomainRuleProviders(cfg) {
+  if (!isPlainObject(cfg) || !isPlainObject(cfg['rule-providers'])) return;
+  const providers = cfg['rule-providers'];
+
+  for (const [name, rp] of Object.entries(providers)) {
+    if (!isPlainObject(rp)) continue;
+    if (String(rp.type || '').toLowerCase() !== 'http') continue;
+
+    const key = String(name || '').toLowerCase();
+    const behavior = String(rp.behavior || '').toLowerCase();
+    const inForceList = DOMAIN_BEHAVIOR_FORCE_KEYS.has(key);
+    const classicalUrlHint = /_Classical\.yaml/i.test(String(rp.url || ''));
+
+    // 仅在明确安全的集合中切 domain，避免误伤其它 classical 规则。
+    if (!(inForceList || classicalUrlHint)) continue;
+
+    rp.behavior = 'domain';
+    rp.format = 'text';
+
+    if (typeof rp.url === 'string' && rp.url) {
+      rp.url = toDomainListUrl(rp.url);
+    }
+    if (typeof rp.path === 'string' && rp.path) {
+      rp.path = toDomainListPath(rp.path);
+    }
+  }
+}
+
+
 async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
   const nowTs = Date.now();
   const templateUrl = String(getAdminSettings().template_url || DEFAULT_CLASH_TEMPLATE_URL);
@@ -1817,6 +1866,9 @@ async function buildClashConfigByLinks(links = []) {
   const remoteBase = await loadRemoteClashTemplate({ forceRefresh: true });
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
+
+  // 规则性能优化：仅对可确认的 http 规则集切换为 behavior=domain。
+  enforceDomainRuleProviders(cfg);
 
   // 兼容异常模板：rule-providers.path 不允许带 query（会导致规则集加载失败）
   if (cfg && typeof cfg === 'object' && cfg['rule-providers'] && typeof cfg['rule-providers'] === 'object') {
