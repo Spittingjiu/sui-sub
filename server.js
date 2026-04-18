@@ -1667,12 +1667,22 @@ function enforceDomainRuleProviders(cfg) {
   if (!isPlainObject(cfg) || !isPlainObject(cfg['rule-providers'])) return;
   const providers = cfg['rule-providers'];
 
+  // 用规则仓库最新 commit 做 cache-bust，保证规则变更后客户端能尽快拉到新列表。
+  let customRulesRev = '';
+  try {
+    const r = spawnSync('git', ['ls-remote', 'https://github.com/Spittingjiu/mihomo-custom-rules.git', 'refs/heads/main'], {
+      encoding: 'utf8', timeout: 8000
+    });
+    if (!r.error && !r.status && r.stdout) {
+      customRulesRev = String(r.stdout).trim().split(/\s+/)[0]?.slice(0, 12) || '';
+    }
+  } catch (_) {}
+
   for (const [name, rp] of Object.entries(providers)) {
     if (!isPlainObject(rp)) continue;
     if (String(rp.type || '').toLowerCase() !== 'http') continue;
 
     const key = String(name || '').toLowerCase();
-    const behavior = String(rp.behavior || '').toLowerCase();
     const inForceList = DOMAIN_BEHAVIOR_FORCE_KEYS.has(key);
     const classicalUrlHint = /_Classical\.yaml/i.test(String(rp.url || ''));
 
@@ -1684,6 +1694,11 @@ function enforceDomainRuleProviders(cfg) {
 
     if (typeof rp.url === 'string' && rp.url) {
       rp.url = toDomainListUrl(rp.url);
+      if ((key === 'my_proxylist' || key === 'my_whitelist') && customRulesRev) {
+        rp.url = rp.url.replace(/([?&])v=[^&]*/g, '').replace(/[?&]$/, '');
+        const hasQ = rp.url.includes('?');
+        rp.url = `${rp.url}${hasQ ? '&' : '?'}v=${customRulesRev}`;
+      }
     }
     if (typeof rp.path === 'string' && rp.path) {
       rp.path = toDomainListPath(rp.path);
@@ -1834,7 +1849,7 @@ async function buildClashConfigByLinks(links = []) {
       telegram: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml', path: './ruleset/blackmatrix7/Telegram.yaml', interval: 86400 },
       google: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml', path: './ruleset/blackmatrix7/Google.yaml', interval: 86400 },
       my_proxylist: { type: 'http', behavior: 'domain', format: 'text', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_proxylist.list', path: './ruleset/custom/my_proxylist.list', interval: 86400 },
-      my_whitelist: { type: 'http', behavior: 'domain', format: 'text', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.list?v=20260418-2', path: './ruleset/custom/my_whitelist.list', interval: 86400 },
+      my_whitelist: { type: 'http', behavior: 'domain', format: 'text', url: 'https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.list', path: './ruleset/custom/my_whitelist.list', interval: 86400 },
       private: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Lan/Lan.yaml', path: './ruleset/blackmatrix7/Lan.yaml', interval: 86400 },
       cncidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt', path: './ruleset/loyalsoldier/cncidr.txt', interval: 86400 },
       lancidr: { type: 'http', behavior: 'ipcidr', format: 'text', url: 'https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt', path: './ruleset/loyalsoldier/lancidr.txt', interval: 86400 }
