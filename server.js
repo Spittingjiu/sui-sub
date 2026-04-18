@@ -1664,6 +1664,14 @@ function toDomainListPath(pathStr = '') {
 
 function collectProxyServerPolicyDomains(proxies = []) {
   const out = new Set();
+
+  const toApexLikeDomain = (host) => {
+    const parts = String(host || '').split('.').filter(Boolean);
+    if (parts.length <= 2) return String(host || '');
+    // 按老板要求：统一收敛到“二级域名形态”，例如 *.a.b.c.tld -> c.tld
+    return parts.slice(-2).join('.');
+  };
+
   for (const p of proxies) {
     if (!p || typeof p !== 'object') continue;
     const host = String(p.server || '').trim().toLowerCase();
@@ -1672,7 +1680,9 @@ function collectProxyServerPolicyDomains(proxies = []) {
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) continue;
     if (host.includes(':')) continue; // 粗略跳过 ipv6
     if (!/^[a-z0-9.-]+$/.test(host) || !host.includes('.')) continue;
-    out.add(`+.${host}`);
+
+    const apex = toApexLikeDomain(host);
+    if (apex && apex.includes('.')) out.add(`+.${apex}`);
   }
   return [...out].sort();
 }
