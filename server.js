@@ -1705,63 +1705,6 @@ function collectProxyServerPolicyDomains(proxies = []) {
   return [...out].sort();
 }
 
-function enforceDomainRuleProviders(cfg) {
-  if (!isPlainObject(cfg) || !isPlainObject(cfg['rule-providers'])) return;
-  const providers = cfg['rule-providers'];
-
-  // 用规则仓库最新 commit 做 cache-bust，保证规则变更后客户端能尽快拉到新列表。
-  let customRulesRev = '';
-  try {
-    const r = spawnSync('git', ['ls-remote', 'https://github.com/Spittingjiu/mihomo-custom-rules.git', 'refs/heads/main'], {
-      encoding: 'utf8', timeout: 8000
-    });
-    if (!r.error && !r.status && r.stdout) {
-      customRulesRev = String(r.stdout).trim().split(/\s+/)[0]?.slice(0, 12) || '';
-    }
-  } catch (_) {}
-
-  for (const [name, rp] of Object.entries(providers)) {
-    if (!isPlainObject(rp)) continue;
-    if (String(rp.type || '').toLowerCase() !== 'http') continue;
-
-    const key = String(name || '').toLowerCase();
-
-    // 这些规则集固定使用 classical/yaml，确保语义稳定并避免匹配精度下降。
-    if (DOMAIN_BEHAVIOR_EXCLUDE_KEYS.has(key)) {
-      rp.behavior = 'classical';
-      rp.format = 'yaml';
-      if (typeof rp.url === 'string' && rp.url) {
-        rp.url = String(rp.url).replace(/\.list(\?.*)?$/i, '.yaml$1');
-      }
-      if (typeof rp.path === 'string' && rp.path) {
-        rp.path = String(rp.path).replace(/\.list(\?.*)?$/i, '.yaml$1');
-      }
-      if ((key === 'my_proxylist' || key === 'my_whitelist') && typeof rp.url === 'string' && rp.url && customRulesRev) {
-        rp.url = rp.url.replace(/([?&])v=[^&]*/g, '').replace(/[?&]$/, '');
-        const hasQ = rp.url.includes('?');
-        rp.url = `${rp.url}${hasQ ? '&' : '?'}v=${customRulesRev}`;
-      }
-      continue;
-    }
-
-    const inForceList = DOMAIN_BEHAVIOR_FORCE_KEYS.has(key);
-    const classicalUrlHint = /_Classical\.yaml/i.test(String(rp.url || ''));
-
-    // 仅在明确安全的集合中切 domain，避免误伤其它 classical 规则。
-    if (!(inForceList || classicalUrlHint)) continue;
-
-    rp.behavior = 'domain';
-    rp.format = 'text';
-
-    if (typeof rp.url === 'string' && rp.url) {
-      rp.url = toDomainListUrl(rp.url);
-    }
-    if (typeof rp.path === 'string' && rp.path) {
-      rp.path = toDomainListPath(rp.path);
-    }
-  }
-}
-
 
 async function loadRemoteClashTemplate({ forceRefresh = false } = {}) {
   const nowTs = Date.now();
