@@ -1524,7 +1524,8 @@ function parseLinkToClashProxy(raw, uniqueName) {
     };
     if (!p.server || !p.port || !p.uuid) return null;
     const flow = u.searchParams.get('flow');
-    if (flow) p.flow = flow;
+    // xhttp 下不附加 flow，避免在 Mihomo 配置中出现无效/误导字段
+    if (flow && network !== 'xhttp') p.flow = flow;
     const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
     if (security !== 'none') p.tls = true;
     if (sni) p.servername = sni;
@@ -1534,12 +1535,22 @@ function parseLinkToClashProxy(raw, uniqueName) {
         headers: { Host: u.searchParams.get('host') || sni || u.hostname }
       };
     }
+    if (network === 'xhttp') {
+      p['xhttp-opts'] = {
+        path: u.searchParams.get('path') || '/'
+      };
+    }
     if (security === 'reality') {
       const pbk = u.searchParams.get('pbk') || '';
       const sid = u.searchParams.get('sid') || '';
       const spx = u.searchParams.get('spx') || u.searchParams.get('spiderx') || u.searchParams.get('spiderX') || '/';
       const fp = u.searchParams.get('fp') || 'chrome';
-      if (pbk) p['reality-opts'] = { 'public-key': pbk, 'short-id': sid, 'spider-x': spx };
+      if (pbk) {
+        const ropts = { 'public-key': pbk, 'short-id': sid };
+        // 仅非 xhttp 场景再附带 spider-x，避免与 xhttp path 语义冲突
+        if (network !== 'xhttp') ropts['spider-x'] = spx;
+        p['reality-opts'] = ropts;
+      }
       p['client-fingerprint'] = fp;
     }
     return p;
@@ -1659,7 +1670,7 @@ const DOMAIN_BEHAVIOR_FORCE_KEYS = new Set([
 
 // 这些规则集保持 classical/yaml，不参与 domain/text 强制切换。
 const DOMAIN_BEHAVIOR_EXCLUDE_KEYS = new Set([
-  'my_proxylist', 'my_whitelist', 'bilibili', 'google_play', 'google', 'gvt1', 'openai', 'steam', 'lancidr', 'cncidr', 'telegram'
+  'my_proxylist', 'my_whitelist', 'bilibili', 'google_play', 'google', 'gvt1', 'openai', 'steam', 'lancidr', 'cncidr'
 ]);
 
 function toDomainListUrl(url = '') {
@@ -1927,8 +1938,8 @@ async function buildClashConfigByLinks(links = []) {
   const templateBase = remoteBase || builtInBase;
   const cfg = { ...templateBase, ...dynamicPart };
 
-  // 规则性能优化：仅对可确认的 http 规则集切换为 behavior=domain。
-  enforceDomainRuleProviders(cfg);
+  // 按模板仓库为准：不在服务端强制改写 rule-providers 行为/格式。
+  // enforceDomainRuleProviders(cfg);
 
   // proxy-server-nameserver-policy：固定 geosite:cn，其余按当前订阅实际节点域名动态注入。
   if (cfg && typeof cfg === 'object') {
