@@ -513,6 +513,31 @@ function withLinkName(rawLink, name) {
   return raw + '#' + encodeURIComponent(nm);
 }
 
+function parseRealityVlessIdentity(rawLink) {
+  try {
+    const u = new URL(String(rawLink || '').trim());
+    if (u.protocol !== 'vless:') return null;
+    const sp = u.searchParams;
+    if (String(sp.get('security') || '').toLowerCase() !== 'reality') return null;
+    return {
+      key: [u.username || '', u.hostname || '', u.port || '', sp.get('sid') || '', sp.get('sni') || ''].join('|'),
+      pbk: sp.get('pbk') || ''
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setUrlParam(rawLink, key, value) {
+  try {
+    const u = new URL(String(rawLink || '').trim());
+    u.searchParams.set(String(key || ''), String(value || ''));
+    return u.toString();
+  } catch {
+    return String(rawLink || '').trim();
+  }
+}
+
 
 async function suiRequest(source, apiPath, method = 'GET', body) {
   const base = String(source.panel_url || '').replace(/\/$/, '');
@@ -610,11 +635,17 @@ function upsertNodes(sourceId, nodes) {
 
     // prune: SUI 面板已删除的节点，同步后本地也删除
     const existing = db.prepare('SELECT id,node_hash FROM nodes WHERE source_id=?').all(sourceId);
+    const toDeleteIds = [];
     for (const e of existing) {
-      if (!latestHashes.has(e.node_hash)) {
-        db.prepare('DELETE FROM nodes WHERE id=?').run(e.id);
-        removed++;
-      }
+      if (!latestHashes.has(e.node_hash)) toDeleteIds.push(Number(e.id));
+    }
+
+    if (toDeleteIds.length) {
+      const marks = toDeleteIds.map(() => '?').join(',');
+      // 先删子表，避免 FOREIGN KEY 约束失败（node_connectivity -> nodes）
+      db.prepare(`DELETE FROM node_connectivity WHERE node_id IN (${marks})`).run(...toDeleteIds);
+      db.prepare(`DELETE FROM nodes WHERE id IN (${marks})`).run(...toDeleteIds);
+      removed += toDeleteIds.length;
     }
 
     // 订阅里清理失效 node_ids
@@ -640,7 +671,28 @@ async function syncSource(id) {
   if (!source) throw new Error('source not found');
   if (String(source.source_type || 'sui_api') === 'local') return { local: true };
   if (!source.panel_token) throw new Error('panel token empty');
+
+  // 保护旧有 reality 节点的 pbk：
+  // 若上游 /links 未返回 pbk，则用本地旧链接同 identity 的 pbk 回填，避免客户端无法握手。
+  const oldRows = db.prepare('SELECT raw_link FROM nodes WHERE source_id=?').all(id);
+  const oldPbkByIdentity = new Map();
+  for (const r of oldRows) {
+    const p = parseRealityVlessIdentity(r.raw_link);
+    if (!p || !p.key || !p.pbk) continue;
+    oldPbkByIdentity.set(p.key, p.pbk);
+  }
+
   const nodes = await fetchSuiPanelLinks(source);
+  for (const n of nodes) {
+    const p = parseRealityVlessIdentity(n.raw_link);
+    if (!p || !p.key) continue;
+    if (p.pbk) continue;
+    const oldPbk = oldPbkByIdentity.get(p.key);
+    if (!oldPbk) continue;
+    n.raw_link = setUrlParam(n.raw_link, 'pbk', oldPbk);
+    n.node_hash = crypto.createHash('sha256').update(n.raw_link).digest('hex');
+  }
+
   const st = upsertNodes(id, nodes);
   db.prepare('UPDATE sources SET last_sync_at=?, last_sync_status=? WHERE id=?').run(now(), 'ok', id);
   return st;
@@ -1607,7 +1659,7 @@ const DOMAIN_BEHAVIOR_FORCE_KEYS = new Set([
 
 // 这些规则集保持 classical/yaml，不参与 domain/text 强制切换。
 const DOMAIN_BEHAVIOR_EXCLUDE_KEYS = new Set([
-  'my_proxylist', 'my_whitelist', 'bilibili', 'google_play', 'google', 'gvt1', 'openai', 'steam', 'lancidr', 'cncidr'
+  'my_proxylist', 'my_whitelist', 'bilibili', 'google_play', 'google', 'gvt1', 'openai', 'steam', 'lancidr', 'cncidr', 'telegram'
 ]);
 
 function toDomainListUrl(url = '') {
