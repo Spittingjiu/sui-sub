@@ -1884,14 +1884,13 @@ async function buildClashConfigByLinks(links = []) {
       ]
     },
     'proxy-groups': [
-      { name: '节点选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [] },
-      { name: '手动选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [] },
-      { name: '独立选择', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [] },
-      { name: 'AI分流', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', '自动选择'] },
-      { name: 'YouTube分流', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', '自动选择'] },
-      { name: 'Telegram分流', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', '自动选择'] },
-      { name: 'Google', type: 'select', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', '自动选择'] },
-      { name: '自动选择', type: 'url-test', 'include-all-proxies': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [], url: 'https://cp.cloudflare.com/generate_204', interval: 600, tolerance: 100 }
+      { name: '节点选择', type: 'select', proxies: ['手动选择', '自动选择'] },
+      { name: '手动选择', type: 'select', 'include-all': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [] },
+      { name: 'AI分流', type: 'select', 'include-all': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', 'DIRECT'] },
+      { name: 'YouTube分流', type: 'select', 'include-all': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', 'DIRECT'] },
+      { name: 'Telegram分流', type: 'select', 'include-all': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', 'DIRECT'] },
+      { name: 'Google', type: 'select', 'include-all': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: ['节点选择', 'DIRECT'] },
+      { name: '自动选择', type: 'url-test', 'include-all': true, 'exclude-filter': '^(?i:(DIRECT|REJECT|PASS))$', proxies: [], url: 'https://cp.cloudflare.com/generate_204', interval: 600, tolerance: 100 }
     ],
     'rule-providers': {
       reject: { type: 'http', behavior: 'classical', format: 'yaml', url: 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Advertising/Advertising_Classical.yaml', path: './ruleset/blackmatrix7/Advertising_Classical.yaml', interval: 86400 },
