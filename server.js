@@ -901,23 +901,37 @@ app.put('/api/sources/:id', (req, res) => {
 });
 
 app.delete('/api/sources/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const src = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
-  if (src && String(src.source_type || 'sui_api') === 'local') return res.status(400).json({ ok:false, error:'本地节点源不可删除' });
-  const deletedNodeIds = db.prepare('SELECT id FROM nodes WHERE source_id=?').all(id).map(x=>x.id);
-  db.prepare('DELETE FROM nodes WHERE source_id=?').run(id);
-  db.prepare('DELETE FROM sources WHERE id=?').run(id);
-  // 清理订阅里失效的 source/node 选择
-  const deletedSet = new Set(deletedNodeIds);
-  const subs = db.prepare('SELECT id,source_ids_json,node_ids_json FROM subscriptions').all();
-  for (const s of subs) {
-    const sourceIds = (JSON.parse(s.source_ids_json || '[]') || []).map(Number).filter(Boolean).filter(x => x !== id);
-    const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean).filter(nid => !deletedSet.has(nid));
-    if (!sourceIds.length && !nodeIds.length) db.prepare('DELETE FROM subscriptions WHERE id=?').run(s.id);
-    else db.prepare('UPDATE subscriptions SET source_ids_json=?, node_ids_json=? WHERE id=?').run(JSON.stringify(sourceIds), JSON.stringify(nodeIds), s.id);
+  try {
+    const id = Number(req.params.id);
+    const src = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
+    if (src && String(src.source_type || 'sui_api') === 'local') return res.status(400).json({ ok:false, error:'本地节点源不可删除' });
+
+    const deletedNodeIds = db.prepare('SELECT id FROM nodes WHERE source_id=?').all(id).map(x => x.id);
+
+    // 先删子表，避免 FOREIGN KEY 约束失败（node_connectivity -> nodes）
+    if (deletedNodeIds.length) {
+      const marks = deletedNodeIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM node_connectivity WHERE node_id IN (${marks})`).run(...deletedNodeIds);
+    }
+
+    db.prepare('DELETE FROM nodes WHERE source_id=?').run(id);
+    db.prepare('DELETE FROM sources WHERE id=?').run(id);
+
+    // 清理订阅里失效的 source/node 选择
+    const deletedSet = new Set(deletedNodeIds);
+    const subs = db.prepare('SELECT id,source_ids_json,node_ids_json FROM subscriptions').all();
+    for (const s of subs) {
+      const sourceIds = (JSON.parse(s.source_ids_json || '[]') || []).map(Number).filter(Boolean).filter(x => x !== id);
+      const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean).filter(nid => !deletedSet.has(nid));
+      if (!sourceIds.length && !nodeIds.length) db.prepare('DELETE FROM subscriptions WHERE id=?').run(s.id);
+      else db.prepare('UPDATE subscriptions SET source_ids_json=?, node_ids_json=? WHERE id=?').run(JSON.stringify(sourceIds), JSON.stringify(nodeIds), s.id);
+    }
+
+    cacheInvalidate();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
-  cacheInvalidate();
-  res.json({ ok: true });
 });
 
 app.post('/api/sources/sync-all', async (_req, res) => {
@@ -1591,6 +1605,11 @@ const DOMAIN_BEHAVIOR_FORCE_KEYS = new Set([
   'reject', 'direct', 'proxy', 'openai', 'anthropic', 'youtube', 'telegram', 'google', 'private'
 ]);
 
+// 这些规则集保持 classical/yaml，不参与 domain/text 强制切换。
+const DOMAIN_BEHAVIOR_EXCLUDE_KEYS = new Set([
+  'my_proxylist', 'my_whitelist', 'bilibili', 'google_play', 'google', 'gvt1', 'openai', 'steam', 'lancidr', 'cncidr'
+]);
+
 function toDomainListUrl(url = '') {
   if (!url) return '';
   let out = String(url);
@@ -1644,20 +1663,20 @@ function enforceDomainRuleProviders(cfg) {
 
     const key = String(name || '').toLowerCase();
 
-    // custom 规则固定使用 classical/yaml，确保规则类型语义稳定。
-    if (key === 'my_proxylist' || key === 'my_whitelist') {
+    // 这些规则集固定使用 classical/yaml，确保语义稳定并避免匹配精度下降。
+    if (DOMAIN_BEHAVIOR_EXCLUDE_KEYS.has(key)) {
       rp.behavior = 'classical';
       rp.format = 'yaml';
       if (typeof rp.url === 'string' && rp.url) {
         rp.url = String(rp.url).replace(/\.list(\?.*)?$/i, '.yaml$1');
-        if (customRulesRev) {
-          rp.url = rp.url.replace(/([?&])v=[^&]*/g, '').replace(/[?&]$/, '');
-          const hasQ = rp.url.includes('?');
-          rp.url = `${rp.url}${hasQ ? '&' : '?'}v=${customRulesRev}`;
-        }
       }
       if (typeof rp.path === 'string' && rp.path) {
         rp.path = String(rp.path).replace(/\.list(\?.*)?$/i, '.yaml$1');
+      }
+      if ((key === 'my_proxylist' || key === 'my_whitelist') && typeof rp.url === 'string' && rp.url && customRulesRev) {
+        rp.url = rp.url.replace(/([?&])v=[^&]*/g, '').replace(/[?&]$/, '');
+        const hasQ = rp.url.includes('?');
+        rp.url = `${rp.url}${hasQ ? '&' : '?'}v=${customRulesRev}`;
       }
       continue;
     }
@@ -1949,7 +1968,8 @@ function recordSubscriptionLog(req, sub, routeType) {
     const uaLower = ua.toLowerCase();
     const isLocalIp = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
     const isScriptProbe = uaLower.startsWith('python-requests/');
-    if (isLocalIp && isScriptProbe) return;
+    const isCurlProbe = uaLower.startsWith('curl/');
+    if (isLocalIp && (isScriptProbe || isCurlProbe)) return;
 
     db.prepare(`INSERT INTO subscription_logs(token,subscription_id,subscription_name,route_type,client_ip,user_agent,device_hint,created_at) VALUES(?,?,?,?,?,?,?,?)`).run(
       String(sub?.token || ''),
