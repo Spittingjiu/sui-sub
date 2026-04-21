@@ -1924,6 +1924,15 @@ function normalizeUniversalRawLink(raw) {
     if (tp === 'xhttp') {
       // xhttp 场景下通用链接移除 flow，避免部分客户端握手失败/拒绝导入
       u.searchParams.delete('flow');
+
+      // 参考 xhttp 可用口径：host 优先与 sni 对齐。
+      // 若 host 缺失，或 host 仍是节点 IP/主机名（非伪装域名），则回填为 sni。
+      const sni = String(u.searchParams.get('sni') || '').trim();
+      const host = String(u.searchParams.get('host') || '').trim();
+      if (sni) {
+        const sameAsServer = !host || host.toLowerCase() === String(u.hostname || '').toLowerCase();
+        if (sameAsServer) u.searchParams.set('host', sni);
+      }
     }
     return u.toString();
   } catch {
