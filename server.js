@@ -1914,6 +1914,23 @@ function getSubByToken(token) {
   return db.prepare('SELECT * FROM subscriptions WHERE token=?').get(token) || null;
 }
 
+function normalizeUniversalRawLink(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return t;
+  if (!t.startsWith('vless://')) return t;
+  try {
+    const u = new URL(t);
+    const tp = String(u.searchParams.get('type') || '').toLowerCase();
+    if (tp === 'xhttp') {
+      // xhttp 场景下通用链接移除 flow，避免部分客户端握手失败/拒绝导入
+      u.searchParams.delete('flow');
+    }
+    return u.toString();
+  } catch {
+    return t;
+  }
+}
+
 function getSubNodeLinksBySub(sub) {
   if (!sub) return null;
   const sourceIds = (JSON.parse(sub.source_ids_json || '[]') || []).map(Number).filter(Boolean);
@@ -1927,7 +1944,7 @@ function getSubNodeLinksBySub(sub) {
     const p = sourceIds.map(()=>'?').join(',');
     rows = db.prepare(`SELECT id,raw_link FROM nodes WHERE enabled=1 AND source_id IN (${p}) ORDER BY id DESC`).all(...sourceIds);
   }
-  return rows.map(x => x.raw_link);
+  return rows.map(x => normalizeUniversalRawLink(x.raw_link));
 }
 
 function detectClientIp(req) {
