@@ -461,11 +461,11 @@ function parseSubscriptionText(text) {
   const t = (text || '').trim();
   if (!t) return [];
   let body = t;
-  if (!/(vmess|vless|trojan|ss):\/\//i.test(t)) {
+  if (!/(vmess|vless|trojan|ss|hy2):\/\//i.test(t)) {
     const decoded = b64decodeLoose(t);
-    if (/(vmess|vless|trojan|ss):\/\//i.test(decoded)) body = decoded;
+    if (/(vmess|vless|trojan|ss|hy2):\/\//i.test(decoded)) body = decoded;
   }
-  const lines = body.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && /^(vmess|vless|trojan|ss):\/\//i.test(x));
+  const lines = body.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && /^(vmess|vless|trojan|ss|hy2):\/\//i.test(x));
   return lines.map((raw) => {
     let name = '';
     const hashIdx = raw.indexOf('#');
@@ -1581,6 +1581,27 @@ function parseLinkToClashProxy(raw, uniqueName) {
         headers: { Host: u.searchParams.get('host') || sni || u.hostname }
       };
     }
+    return p;
+  }
+
+  if (link.startsWith('hy2://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `hy2-${u.hostname}`);
+    const password = decodeURIComponent(u.username || '');
+    const p = {
+      name,
+      type: 'hysteria2',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      password,
+      udp: true
+    };
+    const sni = u.searchParams.get('sni') || '';
+    if (sni) p.sni = sni;
+    const insecure = String(u.searchParams.get('insecure') || '').toLowerCase();
+    if (insecure === '1' || insecure === 'true') p['skip-cert-verify'] = true;
+    if (!p.server || !p.port || !p.password) return null;
     return p;
   }
 
