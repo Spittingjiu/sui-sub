@@ -1920,10 +1920,17 @@ function normalizeUniversalRawLink(raw) {
   if (!t.startsWith('vless://')) return t;
   try {
     const u = new URL(t);
+
+    // 按 VLESS 规范补齐 encryption=none（不少客户端要求该字段显式存在）
+    if (!u.searchParams.get('encryption')) u.searchParams.set('encryption', 'none');
+
     const tp = String(u.searchParams.get('type') || '').toLowerCase();
     if (tp === 'xhttp') {
       // xhttp 场景下通用链接移除 flow，避免部分客户端握手失败/拒绝导入
       u.searchParams.delete('flow');
+
+      // xhttp 的 path 为空时补默认值
+      if (!u.searchParams.get('path')) u.searchParams.set('path', '/');
 
       // 参考 xhttp 可用口径：host 优先与 sni 对齐。
       // 若 host 缺失，或 host 仍是节点 IP/主机名（非伪装域名），则回填为 sni。
