@@ -329,6 +329,40 @@ function parseHostPortFromRawLink(raw) {
   return null;
 }
 
+
+function resolveSourcePublishHost(panelUrl) {
+  try {
+    const u = new URL(String(panelUrl || '').trim());
+    return String(u.hostname || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function rewriteRawLinkHost(rawLink, host) {
+  const raw = String(rawLink || '').trim();
+  const h = String(host || '').trim();
+  if (!raw || !h) return raw;
+  if (raw.startsWith('vmess://')) {
+    try {
+      const payload = b64decodeLoose(raw.slice('vmess://'.length));
+      const j = JSON.parse(payload || '{}');
+      j.add = h;
+      return `vmess://${b64(JSON.stringify(j))}`;
+    } catch {
+      return raw;
+    }
+  }
+  try {
+    const u = new URL(raw);
+    u.hostname = h;
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
+
 async function tcpCheckHostPort(host, port, timeoutMs = 4000) {
   return await new Promise((resolve) => {
     const start = Date.now();
@@ -557,6 +591,7 @@ async function suiRequest(source, apiPath, method = 'GET', body) {
 async function fetchSuiPanelLinks(source) {
   const base = String(source.panel_url || '').replace(/\/$/, '');
   const headers = { 'x-panel-token': source.panel_token };
+  const publishHost = resolveSourcePublishHost(source.panel_url || base);
 
   const inbResp = await fetch(`${base}/api/inbounds`, { headers });
   if (!inbResp.ok) throw new Error(`/api/inbounds HTTP ${inbResp.status}`);
@@ -570,7 +605,11 @@ async function fetchSuiPanelLinks(source) {
     if (!r.ok) continue;
     const j = await r.json();
     if (!j?.success || !Array.isArray(j?.obj)) continue;
-    for (const one of j.obj) if (typeof one === 'string' && one.trim()) links.push(one.trim());
+    for (const one of j.obj) {
+      if (typeof one !== 'string' || !one.trim()) continue;
+      const normalized = rewriteRawLinkHost(one.trim(), publishHost);
+      links.push(normalized || one.trim());
+    }
   }
   return parseSubscriptionText(links.join('\n'));
 }
