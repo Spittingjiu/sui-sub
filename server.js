@@ -1245,6 +1245,24 @@ app.post('/api/sui/:sourceId/reality-quick', async (req, res) => {
   }
 });
 
+app.put('/api/sui/:sourceId/inbounds/:inboundId/rename', async (req, res) => {
+  try {
+    const sourceId = Number(req.params.sourceId);
+    const inboundId = Number(req.params.inboundId);
+    const remark = String(req.body?.remark || '').trim();
+    if (!remark) return res.status(400).json({ ok: false, error: 'remark required' });
+    const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
+    if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'PUT', { remark });
+    if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'rename failed' });
+    await syncSource(sourceId).catch(()=>{});
+    cacheInvalidate();
+    res.json({ ok: true, obj: j.obj || null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.delete('/api/sui/:sourceId/inbounds/:inboundId', async (req, res) => {
   try {
     const sourceId = Number(req.params.sourceId);
