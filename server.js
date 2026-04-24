@@ -1658,6 +1658,14 @@ function parseLinkToClashProxy(raw, uniqueName) {
     if (sni) p.sni = sni;
     const insecure = String(u.searchParams.get('insecure') || '').toLowerCase();
     if (insecure === '1' || insecure === 'true') p['skip-cert-verify'] = true;
+
+    // hy2 port hopping support (MetaCubeX):
+    // mport -> ports, mportInterval -> hop-interval
+    const mport = String(u.searchParams.get('mport') || '').trim();
+    if (mport) p.ports = mport;
+    const mportInterval = String(u.searchParams.get('mportInterval') || '').trim();
+    if (mportInterval) p['hop-interval'] = mportInterval;
+
     if (!p.server || !p.port || !p.password) return null;
     return p;
   }
