@@ -1664,7 +1664,13 @@ function parseLinkToClashProxy(raw, uniqueName) {
     const mport = String(u.searchParams.get('mport') || '').trim();
     if (mport) p.ports = mport;
     const mportInterval = String(u.searchParams.get('mportInterval') || '').trim();
-    if (mportInterval) p['hop-interval'] = mportInterval;
+    // 当前兼容口径：先不下发 hop-interval，避免部分内核版本识别异常
+    // if (mportInterval) p['hop-interval'] = mportInterval;
+
+    const obfs = String(u.searchParams.get('obfs') || '').trim();
+    if (obfs) p.obfs = obfs;
+    const obfsPassword = String(u.searchParams.get('obfs-password') || u.searchParams.get('obfsPassword') || '').trim();
+    if (obfsPassword) p['obfs-password'] = obfsPassword;
 
     if (!p.server || !p.port || !p.password) return null;
     return p;
@@ -1709,6 +1715,8 @@ function stringifyYamlScalar(v) {
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   const s = String(v);
   if (/^geosite:/i.test(s)) return JSON.stringify(s);
+  // 端口范围如 30000-30090 强制按字符串输出，避免不同 YAML 解析器歧义
+  if (/^\d+-\d+$/.test(s)) return JSON.stringify(s);
   if (/^[a-zA-Z0-9_.:@\/-]+$/.test(s)) return s;
   return JSON.stringify(s);
 }
