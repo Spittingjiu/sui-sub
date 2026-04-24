@@ -1641,31 +1641,57 @@ function parseLinkToClashProxy(raw, uniqueName) {
     return p;
   }
 
-  if (link.startsWith('hy2://')) {
+  if (link.startsWith('hy2://') || link.startsWith('hysteria2://')) {
     let u;
-    try { u = new URL(link); } catch { return null; }
-    const name = uniqueName(decodeHashName(link) || `hy2-${u.hostname}`);
-    const password = decodeURIComponent(u.username || '');
+    let host = '';
+    let portRaw = '';
+    let queryPart = '';
+    let authRaw = '';
+    try {
+      u = new URL(link);
+      host = u.hostname;
+      portRaw = String(u.port || '').trim();
+      queryPart = u.search || '';
+      authRaw = u.username || '';
+    } catch {
+      // 兼容 Hysteria2 官方 URI 的 multi-port authority：host:443,5000-6000
+      const m = String(link).match(/^hysteria2:\/\/([^@]+)@((?:\[[^\]]+\]|[^:\/?#]+)):(\d+(?:,[^\/?#]+)?)(?:\/)?(?:\?([^#]*))?(?:#.*)?$/i)
+        || String(link).match(/^hy2:\/\/([^@]+)@((?:\[[^\]]+\]|[^:\/?#]+)):(\d+(?:,[^\/?#]+)?)(?:\/)?(?:\?([^#]*))?(?:#.*)?$/i);
+      if (!m) return null;
+      authRaw = m[1] || '';
+      host = String(m[2] || '').replace(/^\[|\]$/g, '');
+      portRaw = String(m[3] || '').trim();
+      queryPart = m[4] ? `?${m[4]}` : '';
+      u = { searchParams: new URLSearchParams(m[4] || '') };
+    }
+
+    const name = uniqueName(decodeHashName(link) || `hy2-${host}`);
+    const password = decodeURIComponent(authRaw || '');
+
+    const portList = String(portRaw || '').split(',').map((x) => String(x).trim()).filter(Boolean);
+    const mainPort = Number(portList[0] || 0);
+    const authorityExtraPorts = portList.slice(1).join(',');
+
     const p = {
       name,
       type: 'hysteria2',
-      server: u.hostname,
-      port: Number(u.port || 0),
+      server: host,
+      port: mainPort,
       password,
       udp: true
     };
+
     const sni = u.searchParams.get('sni') || '';
     if (sni) p.sni = sni;
     const insecure = String(u.searchParams.get('insecure') || '').toLowerCase();
     if (insecure === '1' || insecure === 'true') p['skip-cert-verify'] = true;
 
-    // hy2 port hopping support (MetaCubeX):
-    // mport -> ports, mportInterval -> hop-interval
+    // 兼容两种写法：
+    // 1) 官方 URI authority multi-port: :443,5000-6000
+    // 2) 兼容参数 mport=5000-6000
     const mport = String(u.searchParams.get('mport') || '').trim();
     if (mport) p.ports = mport;
-    const mportInterval = String(u.searchParams.get('mportInterval') || '').trim();
-    // 当前兼容口径：先不下发 hop-interval，避免部分内核版本识别异常
-    // if (mportInterval) p['hop-interval'] = mportInterval;
+    else if (authorityExtraPorts) p.ports = authorityExtraPorts;
 
     const obfs = String(u.searchParams.get('obfs') || '').trim();
     if (obfs) p.obfs = obfs;
