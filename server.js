@@ -1691,15 +1691,25 @@ function parseLinkToClashProxy(raw, uniqueName) {
     const insecure = pickQ('insecure');
     if (insecure === '1' || insecure.toLowerCase() === 'true') p['skip-cert-verify'] = true;
 
-    // 兼容两种写法：
+    // 兼容三种写法：
     // 1) 官方 URI authority multi-port: :443,5000-6000
-    // 2) 兼容参数 mport=5000-6000
-    const mport = pickQ('mport');
+    // 2) mport=5000-6000
+    // 3) x-ui 兼容参数 udphopPort=5000-6000
+    const mport = pickQ('mport', 'udphopPort');
     if (mport) p.ports = mport;
     else if (authorityExtraPorts) p.ports = authorityExtraPorts;
 
-    // 端口跳跃间隔兼容：hop-interval / hopInterval / mportInterval
-    const hopInterval = pickQ('hop-interval', 'hopInterval', 'mportInterval', 'mport-interval');
+    // 端口跳跃间隔兼容：
+    // - 通用: hop-interval / hopInterval / mportInterval / mport-interval
+    // - x-ui: udphopInterval / udphopIntervalMin + udphopIntervalMax
+    let hopInterval = pickQ('hop-interval', 'hopInterval', 'mportInterval', 'mport-interval', 'udphopInterval');
+    if (!hopInterval) {
+      const minIv = pickQ('udphopIntervalMin');
+      const maxIv = pickQ('udphopIntervalMax');
+      if (minIv && maxIv) hopInterval = `${minIv}-${maxIv}`;
+      else if (minIv) hopInterval = minIv;
+      else if (maxIv) hopInterval = maxIv;
+    }
     if (hopInterval) p['hop-interval'] = hopInterval;
 
     const obfs = pickQ('obfs');
