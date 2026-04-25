@@ -1558,8 +1558,13 @@ function parseLinkToClashProxy(raw, uniqueName) {
     const tlsOn = String(j.tls || '').toLowerCase() === 'tls';
     if (tlsOn) p.tls = true;
     if (j.sni) p.servername = j.sni;
+    if (j.alpn) p.alpn = String(j.alpn).split(',').map((x) => String(x).trim()).filter(Boolean);
+    if (j.fp) p['client-fingerprint'] = j.fp;
     if (network === 'ws') {
       p['ws-opts'] = { path: j.path || '/', headers: { Host: j.host || j.add || '' } };
+    }
+    if (network === 'grpc') {
+      p['grpc-opts'] = { 'grpc-service-name': j.path || j.serviceName || '' };
     }
     return p;
   }
@@ -1586,10 +1591,19 @@ function parseLinkToClashProxy(raw, uniqueName) {
     const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
     if (security !== 'none') p.tls = true;
     if (sni) p.servername = sni;
+    const alpn = (u.searchParams.get('alpn') || '').split(',').map((x) => String(x).trim()).filter(Boolean);
+    if (alpn.length) p.alpn = alpn;
+    const fp = u.searchParams.get('fp') || '';
+    if (fp) p['client-fingerprint'] = fp;
     if (network === 'ws') {
       p['ws-opts'] = {
         path: u.searchParams.get('path') || '/',
         headers: { Host: u.searchParams.get('host') || sni || u.hostname }
+      };
+    }
+    if (network === 'grpc') {
+      p['grpc-opts'] = {
+        'grpc-service-name': u.searchParams.get('serviceName') || '',
       };
     }
     if (network === 'xhttp') {
@@ -1632,10 +1646,19 @@ function parseLinkToClashProxy(raw, uniqueName) {
     if (security !== 'none') p.tls = true;
     const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
     if (sni) p.sni = sni;
+    const alpn = (u.searchParams.get('alpn') || '').split(',').map((x) => String(x).trim()).filter(Boolean);
+    if (alpn.length) p.alpn = alpn;
+    const fp = u.searchParams.get('fp') || '';
+    if (fp) p['client-fingerprint'] = fp;
     if (network === 'ws') {
       p['ws-opts'] = {
         path: u.searchParams.get('path') || '/',
         headers: { Host: u.searchParams.get('host') || sni || u.hostname }
+      };
+    }
+    if (network === 'grpc') {
+      p['grpc-opts'] = {
+        'grpc-service-name': u.searchParams.get('serviceName') || '',
       };
     }
     return p;
@@ -1690,6 +1713,10 @@ function parseLinkToClashProxy(raw, uniqueName) {
     if (sni) p.sni = sni;
     const insecure = pickQ('insecure');
     if (insecure === '1' || insecure.toLowerCase() === 'true') p['skip-cert-verify'] = true;
+    const alpn = pickQ('alpn');
+    if (alpn) p.alpn = alpn.split(',').map((x) => String(x).trim()).filter(Boolean);
+    const fp = pickQ('fp');
+    if (fp) p['client-fingerprint'] = fp;
 
     // 兼容三种写法：
     // 1) 官方 URI authority multi-port: :443,5000-6000
@@ -1753,6 +1780,23 @@ function parseLinkToClashProxy(raw, uniqueName) {
       udp: true
     };
     if (!p.server || !p.port || !p.cipher || !p.password) return null;
+
+    // 对齐 x-ui 常见 ss 链接扩展：type=ws + security=tls
+    const t = String(u.searchParams.get('type') || '').toLowerCase();
+    const sec = String(u.searchParams.get('security') || '').toLowerCase();
+    if (t === 'ws') {
+      const host = u.searchParams.get('host') || u.searchParams.get('sni') || u.hostname;
+      const path = u.searchParams.get('path') || '/';
+      p.plugin = 'v2ray-plugin';
+      p['plugin-opts'] = {
+        mode: 'websocket',
+        host,
+        path,
+      };
+      if (sec === 'tls') {
+        p['plugin-opts'].tls = true;
+      }
+    }
     return p;
   }
 
