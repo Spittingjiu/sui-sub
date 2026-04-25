@@ -1645,13 +1645,11 @@ function parseLinkToClashProxy(raw, uniqueName) {
     let u;
     let host = '';
     let portRaw = '';
-    let queryPart = '';
     let authRaw = '';
     try {
       u = new URL(link);
       host = u.hostname;
       portRaw = String(u.port || '').trim();
-      queryPart = u.search || '';
       authRaw = u.username || '';
     } catch {
       // 兼容 Hysteria2 官方 URI 的 multi-port authority：host:443,5000-6000
@@ -1661,9 +1659,17 @@ function parseLinkToClashProxy(raw, uniqueName) {
       authRaw = m[1] || '';
       host = String(m[2] || '').replace(/^\[|\]$/g, '');
       portRaw = String(m[3] || '').trim();
-      queryPart = m[4] ? `?${m[4]}` : '';
       u = { searchParams: new URLSearchParams(m[4] || '') };
     }
+
+    const qp = u.searchParams || new URLSearchParams();
+    const pickQ = (...keys) => {
+      for (const k of keys) {
+        const v = String(qp.get(k) || '').trim();
+        if (v) return v;
+      }
+      return '';
+    };
 
     const name = uniqueName(decodeHashName(link) || `hy2-${host}`);
     const password = decodeURIComponent(authRaw || '');
@@ -1680,23 +1686,32 @@ function parseLinkToClashProxy(raw, uniqueName) {
       password,
       udp: true
     };
-
-    const sni = u.searchParams.get('sni') || '';
+    const sni = pickQ('sni');
     if (sni) p.sni = sni;
-    const insecure = String(u.searchParams.get('insecure') || '').toLowerCase();
-    if (insecure === '1' || insecure === 'true') p['skip-cert-verify'] = true;
+    const insecure = pickQ('insecure');
+    if (insecure === '1' || insecure.toLowerCase() === 'true') p['skip-cert-verify'] = true;
 
     // 兼容两种写法：
     // 1) 官方 URI authority multi-port: :443,5000-6000
     // 2) 兼容参数 mport=5000-6000
-    const mport = String(u.searchParams.get('mport') || '').trim();
+    const mport = pickQ('mport');
     if (mport) p.ports = mport;
     else if (authorityExtraPorts) p.ports = authorityExtraPorts;
 
-    const obfs = String(u.searchParams.get('obfs') || '').trim();
+    // 端口跳跃间隔兼容：hop-interval / hopInterval / mportInterval
+    const hopInterval = pickQ('hop-interval', 'hopInterval', 'mportInterval', 'mport-interval');
+    if (hopInterval) p['hop-interval'] = hopInterval;
+
+    const obfs = pickQ('obfs');
     if (obfs) p.obfs = obfs;
-    const obfsPassword = String(u.searchParams.get('obfs-password') || u.searchParams.get('obfsPassword') || '').trim();
+    const obfsPassword = pickQ('obfs-password', 'obfsPassword');
     if (obfsPassword) p['obfs-password'] = obfsPassword;
+
+    // hy2 带宽参数：兼容 up/down、upmbps/downmbps、up_mbps/down_mbps
+    const up = pickQ('up', 'upmbps', 'up_mbps');
+    const down = pickQ('down', 'downmbps', 'down_mbps');
+    if (up) p.up = /^\d+(\.\d+)?$/i.test(up) ? `${up} Mbps` : up;
+    if (down) p.down = /^\d+(\.\d+)?$/i.test(down) ? `${down} Mbps` : down;
 
     if (!p.server || !p.port || !p.password) return null;
     return p;
