@@ -1493,7 +1493,11 @@ app.delete('/api/local-nodes/:id', (req, res) => {
     const row = db.prepare("SELECT n.id,s.source_type FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.id=?").get(id);
     if (!row) return res.status(404).json({ ok:false, error:'node not found' });
     if (String(row.source_type || 'sui_api') !== 'local') return res.status(400).json({ ok:false, error:'仅可删除本地节点' });
+
+    // 先删子表，避免 FOREIGN KEY 约束失败（node_connectivity -> nodes）
+    db.prepare('DELETE FROM node_connectivity WHERE node_id=?').run(id);
     db.prepare('DELETE FROM nodes WHERE id=?').run(id);
+
     const subs = db.prepare('SELECT id,node_ids_json FROM subscriptions').all();
     for (const s of subs) {
       const nodeIds = (JSON.parse(s.node_ids_json || '[]') || []).map(Number).filter(Boolean);
