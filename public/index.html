@@ -200,6 +200,20 @@
     </div>
   </div>
 
+  <div id="cfFilterModal" class="modal-mask hide">
+    <div class="modal-box">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 id="cfFilterTitle" style="margin:0">CF 节点筛选</h3>
+        <button onclick="closeCfFilterModal()">关闭</button>
+      </div>
+      <div id="cfFilterBody" style="margin-top:10px"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px">
+        <button onclick="clearCfFilterDraft()">清空勾选</button>
+        <button onclick="applyCfFilter()">应用筛选</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 const q=s=>document.querySelector(s);
 let sources=[], allNodes=[], modalAllNodes=[], sourceViewId='all', editingSubId=null;
@@ -210,6 +224,8 @@ let currentLinkTab='general';
 let theme='dark';
 let activeTab='home';
 const selectedNodeIds=new Set();
+let cfFilterSourceId=null;
+let cfFilterDraft={};
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const isLocalSource=(s)=>String(s?.source_type||'sui_api')==='local' || String(s?.panel_url||'')==='local://manual';
 const orderedSources=()=>[...sources].sort((a,b)=>{
@@ -285,7 +301,8 @@ function isCfSource(s){
   return /(workers\.dev|cloudflare)/.test(panel) || /(^|[^a-z])cf([^a-z]|$)|cloudflare/.test(name);
 }
 function renderSourceCard(s){
-  return `<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':`<button onclick="openSecurePanel(${s.id})">安全访问</button><button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
+  const isCf=isCfSource(s);
+  return `<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':(isCf?`<button onclick="openCfFilterModal(${s.id})">节点筛选</button>`:`<button onclick="openSecurePanel(${s.id})">安全访问</button>`)+`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
 }
 function renderSourceGroup(title, list, open=true){
   return `<details ${open?'open':''} style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px"><summary style="cursor:pointer;user-select:none;font-weight:700">${title}（${list.length}）</summary><div style="margin-top:8px">${list.length?list.map(renderSourceCard).join(''):'<div class="muted">暂无</div>'}</div></details>`;
@@ -304,6 +321,115 @@ function openSecurePanel(id){
   const sid=Number(id)||0;
   if(!sid) return;
   window.open(`/panel-proxy/${sid}/`, '_blank', 'noopener');
+}
+
+function parseNodeMeta(n){
+  const raw=String(n?.raw_link||'').trim();
+  const name=String(n?.node_name||'');
+  let transport='other', hostType='domain', host='', alpn='';
+  try{
+    const u=new URL(raw);
+    host=(u.hostname||'').trim();
+    if(/^\d+\.\d+\.\d+\.\d+$/.test(host)) hostType='ipv4';
+    else if(host.includes(':')) hostType='ipv6';
+    else hostType='domain';
+    transport=(u.searchParams.get('type')||'').toLowerCase()||'other';
+    alpn=(u.searchParams.get('alpn')||'').toLowerCase();
+  }catch(_e){}
+  const nn=name.toUpperCase();
+  const tags=[];
+  if(/移动/.test(name)) tags.push('移动');
+  if(/联通/.test(name)) tags.push('联通');
+  if(/电信/.test(name)) tags.push('电信');
+  if(/HKG/.test(nn)) tags.push('HKG');
+  if(/SJC/.test(nn)) tags.push('SJC');
+  if(/SIN/.test(nn)) tags.push('SIN');
+  if(/NRT/.test(nn)) tags.push('NRT');
+  if(/LAX/.test(nn)) tags.push('LAX');
+  if(/SEA/.test(nn)) tags.push('SEA');
+  if(/MAA/.test(nn)) tags.push('MAA');
+  if(/原生地址/.test(name)) tags.push('原生地址');
+  return {transport,hostType,host,alpn,tags};
+}
+
+function buildCfFilters(nodes){
+  const count=(arr,key)=>arr.reduce((m,x)=>{m[x[key]]=(m[x[key]]||0)+1;return m;},{});
+  const metas=nodes.map(parseNodeMeta);
+  const transports=count(metas,'transport');
+  const hostTypes=count(metas,'hostType');
+  const alpns={h3:0,h2:0};
+  for(const m of metas){ if((m.alpn||'').includes('h3')) alpns.h3++; if((m.alpn||'').includes('h2')) alpns.h2++; }
+  const tags=['移动','联通','电信','HKG','SJC','SIN','NRT','LAX','SEA','MAA','原生地址'];
+  const tagCounts={};
+  for(const t of tags) tagCounts[t]=metas.filter(x=>x.tags.includes(t)).length;
+  return {metas,transports,hostTypes,alpns,tagCounts};
+}
+
+function optionCheckbox(name,label,count,checked=false){
+  return `<label style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);padding:6px 10px;border-radius:10px;background:var(--bg2)"><input type="checkbox" data-cf-key="${esc(name)}" ${checked?'checked':''}/> ${label} <span class="muted">(${count})</span></label>`;
+}
+
+async function openCfFilterModal(sourceId){
+  const sid=Number(sourceId)||0;
+  if(!sid) return;
+  cfFilterSourceId=sid;
+  const src=sources.find(s=>Number(s.id)===sid);
+  q('#cfFilterTitle').textContent=`CF 节点筛选 · ${src?.name||sid}`;
+  const j=await api('/api/view/nodes?sourceId='+sid);
+  const nodes=j.nodes||[];
+  const f=buildCfFilters(nodes);
+  const draft=cfFilterDraft[String(sid)]||{transport:new Set(),hostType:new Set(),alpn:new Set(),tag:new Set()};
+  const isOn=(grp,key)=>draft[grp]&&draft[grp].has(key);
+  const body=q('#cfFilterBody');
+  body.innerHTML=`
+    <div class="muted" style="margin-bottom:8px">实时节点数：${nodes.length}</div>
+    <div style="margin:8px 0"><b>传输层</b><div class="row" style="margin-top:6px">${['ws','xhttp','other'].map(k=>optionCheckbox(`transport:${k}`,k.toUpperCase(),Number(f.transports[k]||0),isOn('transport',k))).join('')}</div></div>
+    <div style="margin:8px 0"><b>地址类型</b><div class="row" style="margin-top:6px">${['domain','ipv4','ipv6'].map(k=>optionCheckbox(`hostType:${k}`,k,Number(f.hostTypes[k]||0),isOn('hostType',k))).join('')}</div></div>
+    <div style="margin:8px 0"><b>ALPN</b><div class="row" style="margin-top:6px">${['h3','h2'].map(k=>optionCheckbox(`alpn:${k}`,k.toUpperCase(),Number(f.alpns[k]||0),isOn('alpn',k))).join('')}</div></div>
+    <div style="margin:8px 0"><b>标签画像</b><div class="row" style="margin-top:6px">${Object.keys(f.tagCounts).map(k=>optionCheckbox(`tag:${k}`,k,Number(f.tagCounts[k]||0),isOn('tag',k))).join('')}</div></div>
+  `;
+  q('#cfFilterModal').classList.remove('hide');
+}
+
+function closeCfFilterModal(){ q('#cfFilterModal').classList.add('hide'); }
+
+function clearCfFilterDraft(){
+  if(!cfFilterSourceId) return;
+  cfFilterDraft[String(cfFilterSourceId)]={transport:new Set(),hostType:new Set(),alpn:new Set(),tag:new Set()};
+  openCfFilterModal(cfFilterSourceId);
+}
+
+function applyCfFilter(){
+  if(!cfFilterSourceId) return;
+  const next={transport:new Set(),hostType:new Set(),alpn:new Set(),tag:new Set()};
+  document.querySelectorAll('#cfFilterBody input[data-cf-key]').forEach(el=>{
+    if(!el.checked) return;
+    const [grp,key]=String(el.getAttribute('data-cf-key')||'').split(':');
+    if(next[grp]&&key) next[grp].add(key);
+  });
+  cfFilterDraft[String(cfFilterSourceId)]=next;
+  closeCfFilterModal();
+  if(String(sourceViewId)===String(cfFilterSourceId)) renderNodes();
+}
+
+function passCfFilter(node){
+  const sid=String(node?.source_id||'');
+  const d=cfFilterDraft[sid];
+  if(!d) return true;
+  const hasAny=[...Object.values(d)].some(s=>s&&s.size>0);
+  if(!hasAny) return true;
+  const m=parseNodeMeta(node);
+  if(d.transport?.size && !d.transport.has(m.transport)) return false;
+  if(d.hostType?.size && !d.hostType.has(m.hostType)) return false;
+  if(d.alpn?.size){
+    const ok=[...d.alpn].some(k=>(m.alpn||'').includes(k));
+    if(!ok) return false;
+  }
+  if(d.tag?.size){
+    const ok=[...d.tag].some(k=>m.tags.includes(k));
+    if(!ok) return false;
+  }
+  return true;
 }
 
 let kernelInstalled=false;
@@ -372,8 +498,8 @@ function connectivityCell(n){
   return `<span class="muted">未检测</span>`;
 }
 function renderNodes(){
-  const rows=allNodes, box=q('#nodes');
-  if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点</div>';return;}
+  const rows=(allNodes||[]).filter(n=>passCfFilter(n)), box=q('#nodes');
+  if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点（或被筛选条件过滤）</div>';return;}
   box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th><button onclick="checkConnectivity()" title="点击检测当前列表连通性" style="padding:4px 8px">连通性</button></th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
     const isLocal=String(n.source_type||'sui_api')==='local';
     const op=isLocal
