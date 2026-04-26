@@ -422,7 +422,9 @@ function applyCfFilter(){
   });
   cfFilterDraft[String(cfFilterSourceId)]=next;
   closeCfFilterModal();
-  if(String(sourceViewId)===String(cfFilterSourceId)) renderNodes();
+  // 不管当前在“全部源”还是单源，都立即重算数量与列表
+  renderNodeSourceSelect();
+  renderNodes();
 }
 
 function passCfFilter(node){
