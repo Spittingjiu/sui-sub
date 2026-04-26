@@ -1694,9 +1694,11 @@ function parseLinkToClashProxy(raw, uniqueName) {
       const spx = u.searchParams.get('spx') || u.searchParams.get('spiderx') || u.searchParams.get('spiderX') || '/';
       const fp = u.searchParams.get('fp') || 'chrome';
       if (pbk) {
-        const ropts = { 'public-key': pbk, 'short-id': sid };
+        const ropts = { 'public-key': pbk };
+        // short-id 仅在非空时输出，避免出现 short-id: ""
+        if (sid) ropts['short-id'] = sid;
         // 仅非 xhttp 场景再附带 spider-x，避免与 xhttp path 语义冲突
-        if (network !== 'xhttp') ropts['spider-x'] = spx;
+        if (network !== 'xhttp' && spx) ropts['spider-x'] = spx;
         p['reality-opts'] = ropts;
       }
       p['client-fingerprint'] = fp;
