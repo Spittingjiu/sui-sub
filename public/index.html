@@ -495,21 +495,27 @@ function renderNodeSourceSelect(){
     filteredCountBySource.set(sid, Number(filteredCountBySource.get(sid)||0)+1);
   }
 
-  const total = sources.reduce((a,s)=>a+Number(s.node_count||0),0);
-  const local = sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
-  const nonLocal = sources.filter(s=>!(String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual'));
+  const enabledSources=(sources||[]).filter(s=>Number(s?.enabled??1)===1);
+  const local = enabledSources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
+  const nonLocal = enabledSources.filter(s=>!(String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual'));
 
-  const options=[`<option value=\"all\">全部源（${total}）</option>`];
-  if(local) options.push(`<option value=\"${local.id}\">本地节点（${Number(local.node_count||0)}）</option>`);
-  options.push(...nonLocal.map(s=>{
+  const sourceItems=[];
+  if(local){
+    sourceItems.push({ id:String(local.id), label:'本地节点', count:Number(local.node_count||0) });
+  }
+  for(const s of nonLocal){
     const isCf=isCfSource(s);
     const c=isCf?Number(filteredCountBySource.get(Number(s.id))||0):Number(s.node_count||0);
-    return `<option value=\"${s.id}\">${s.name}（${c}）</option>`;
-  }));
+    sourceItems.push({ id:String(s.id), label:s.name, count:c });
+  }
+  const total=sourceItems.reduce((a,x)=>a+Number(x.count||0),0);
+
+  const options=[`<option value=\"all\">全部源（${total}）</option>`, ...sourceItems.map(x=>`<option value=\"${x.id}\">${x.label}（${x.count}）</option>`)];
 
   sel.innerHTML=options.join('');
   const has=[...sel.options].some(o=>o.value===String(sourceViewId));
   sel.value=has?String(sourceViewId):'all';
+  if(!has) sourceViewId='all';
   setLocalAddVisible();
 }
 function setNodeSource(v){sourceViewId=String(v);renderNodeSourceSelect();setLocalAddVisible();const nm=q('#nodeMsg'); if(nm) nm.textContent='';loadNodes();}
