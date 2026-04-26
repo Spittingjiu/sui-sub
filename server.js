@@ -614,6 +614,24 @@ async function fetchSuiPanelLinks(source) {
   return parseSubscriptionText(links.join('\n'));
 }
 
+async function fetchCfSubscriptionLinks(source) {
+  const subUrl = String(source.panel_url || '').trim();
+  if (!subUrl) throw new Error('cf sub url empty');
+  const headers = {
+    'user-agent': 'sui-sub/1.0',
+    'accept': 'text/plain,*/*'
+  };
+  if (String(source.panel_token || '').trim()) {
+    headers['authorization'] = `Bearer ${String(source.panel_token || '').trim()}`;
+  }
+  const r = await fetch(subUrl, { headers });
+  if (!r.ok) throw new Error(`cf sub fetch HTTP ${r.status}`);
+  const text = await r.text();
+  const nodes = parseSubscriptionText(text);
+  if (!nodes.length) throw new Error('cf sub parse failed: no node found');
+  return nodes;
+}
+
 async function findSuiInboundIdByNodeHash(source, nodeHash) {
   const j = await suiRequest(source, '/api/inbounds');
   if (!j?.success || !Array.isArray(j?.obj)) return null;
@@ -709,27 +727,33 @@ async function syncSource(id) {
   const source = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
   if (!source) throw new Error('source not found');
   if (String(source.source_type || 'sui_api') === 'local') return { local: true };
-  if (!source.panel_token) throw new Error('panel token empty');
 
-  // 保护旧有 reality 节点的 pbk：
-  // 若上游 /links 未返回 pbk，则用本地旧链接同 identity 的 pbk 回填，避免客户端无法握手。
-  const oldRows = db.prepare('SELECT raw_link FROM nodes WHERE source_id=?').all(id);
-  const oldPbkByIdentity = new Map();
-  for (const r of oldRows) {
-    const p = parseRealityVlessIdentity(r.raw_link);
-    if (!p || !p.key || !p.pbk) continue;
-    oldPbkByIdentity.set(p.key, p.pbk);
-  }
+  let nodes = [];
+  if (String(source.source_type || 'sui_api') === 'cf_sub') {
+    nodes = await fetchCfSubscriptionLinks(source);
+  } else {
+    if (!source.panel_token) throw new Error('panel token empty');
 
-  const nodes = await fetchSuiPanelLinks(source);
-  for (const n of nodes) {
-    const p = parseRealityVlessIdentity(n.raw_link);
-    if (!p || !p.key) continue;
-    if (p.pbk) continue;
-    const oldPbk = oldPbkByIdentity.get(p.key);
-    if (!oldPbk) continue;
-    n.raw_link = setUrlParam(n.raw_link, 'pbk', oldPbk);
-    n.node_hash = crypto.createHash('sha256').update(n.raw_link).digest('hex');
+    // 保护旧有 reality 节点的 pbk：
+    // 若上游 /links 未返回 pbk，则用本地旧链接同 identity 的 pbk 回填，避免客户端无法握手。
+    const oldRows = db.prepare('SELECT raw_link FROM nodes WHERE source_id=?').all(id);
+    const oldPbkByIdentity = new Map();
+    for (const r of oldRows) {
+      const p = parseRealityVlessIdentity(r.raw_link);
+      if (!p || !p.key || !p.pbk) continue;
+      oldPbkByIdentity.set(p.key, p.pbk);
+    }
+
+    nodes = await fetchSuiPanelLinks(source);
+    for (const n of nodes) {
+      const p = parseRealityVlessIdentity(n.raw_link);
+      if (!p || !p.key) continue;
+      if (p.pbk) continue;
+      const oldPbk = oldPbkByIdentity.get(p.key);
+      if (!oldPbk) continue;
+      n.raw_link = setUrlParam(n.raw_link, 'pbk', oldPbk);
+      n.node_hash = crypto.createHash('sha256').update(n.raw_link).digest('hex');
+    }
   }
 
   const st = upsertNodes(id, nodes);
@@ -931,37 +955,55 @@ app.get('/api/sources', (req, res) => {
 
 app.post('/api/sources', async (req, res) => {
   try {
-    const { name, panel_url, panel_token } = req.body || {};
+    const { name, panel_url, panel_token, source_type } = req.body || {};
     const nm = String(name || '').trim();
     const pu = String(panel_url || '').trim();
     const auth = String(panel_token || '').trim();
-    if (!nm || !pu || !auth) return res.status(400).json({ ok: false, error: 'name / panel_url / token 必填' });
+    const st = String(source_type || 'sui_api').trim() || 'sui_api';
+    if (!nm || !pu) return res.status(400).json({ ok: false, error: 'name / panel_url 必填' });
 
     let finalToken = auth;
-    const m = auth.match(/^([^:\s]+):(.+)$/);
-    if (m) {
-      const username = m[1].trim();
-      const password = m[2];
-      const base = pu.replace(/\/$/, '');
-      const lr = await fetch(`${base}/api/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        redirect: 'manual'
+
+    if (st === 'cf_sub') {
+      // CF 源按订阅链接拉取，token 可选
+      const r = await fetch(pu, {
+        headers: {
+          'user-agent': 'sui-sub/1.0',
+          'accept': 'text/plain,*/*',
+          ...(finalToken ? { authorization: `Bearer ${finalToken}` } : {})
+        }
       });
-      if (!lr.ok) return res.status(400).json({ ok: false, error: `面板登录失败 /api/login HTTP ${lr.status}` });
-      const tr = await fetch(`${base}/api/panel/token`, {
-        method: 'GET',
-        headers: { cookie: (lr.headers.raw && lr.headers.raw()['set-cookie'] ? lr.headers.raw()['set-cookie'].map(x=>String(x).split(';')[0]).join('; ') : '') }
-      });
-      if (!tr.ok) return res.status(400).json({ ok: false, error: `获取 token 失败 /api/panel/token HTTP ${tr.status}` });
-      const tj = await tr.json().catch(() => null);
-      const tk = String(tj?.obj?.token || '').trim();
-      if (!tk) return res.status(400).json({ ok: false, error: '面板未返回 token' });
-      finalToken = tk;
+      if (!r.ok) return res.status(400).json({ ok: false, error: `CF 订阅链接不可用 HTTP ${r.status}` });
+      const t = await r.text();
+      const parsed = parseSubscriptionText(t);
+      if (!parsed.length) return res.status(400).json({ ok: false, error: 'CF 订阅解析失败（未识别到节点）' });
+    } else {
+      if (!auth) return res.status(400).json({ ok: false, error: 'SUI 源需要 token（或账号:密码）' });
+      const m = auth.match(/^([^:\s]+):(.+)$/);
+      if (m) {
+        const username = m[1].trim();
+        const password = m[2];
+        const base = pu.replace(/\/$/, '');
+        const lr = await fetch(`${base}/api/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          redirect: 'manual'
+        });
+        if (!lr.ok) return res.status(400).json({ ok: false, error: `面板登录失败 /api/login HTTP ${lr.status}` });
+        const tr = await fetch(`${base}/api/panel/token`, {
+          method: 'GET',
+          headers: { cookie: (lr.headers.raw && lr.headers.raw()['set-cookie'] ? lr.headers.raw()['set-cookie'].map(x=>String(x).split(';')[0]).join('; ') : '') }
+        });
+        if (!tr.ok) return res.status(400).json({ ok: false, error: `获取 token 失败 /api/panel/token HTTP ${tr.status}` });
+        const tj = await tr.json().catch(() => null);
+        const tk = String(tj?.obj?.token || '').trim();
+        if (!tk) return res.status(400).json({ ok: false, error: '面板未返回 token' });
+        finalToken = tk;
+      }
     }
 
-    const result = insertSourceRow(nm, pu, finalToken);
+    const result = insertSourceRow(nm, pu, finalToken, st);
     const source_id = Number(result.lastInsertRowid);
 
     // 立即同步一次（异步）

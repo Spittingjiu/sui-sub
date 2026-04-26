@@ -105,9 +105,9 @@
         <details style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px">
           <summary style="cursor:pointer;user-select:none;font-weight:700">新建 CF 源</summary>
           <div class="grid" style="margin-top:10px">
-            <input id="cfName" placeholder="名称（例如：CF-东京）"/>
-            <input id="cfPanel" placeholder="面板地址（https://panel.example.com）"/>
-            <input id="cfToken" placeholder="SUI API Token（或填 账号:密码）"/>
+            <input id="cfName" placeholder="名称（例如：CF-订阅）"/>
+            <input id="cfPanel" placeholder="CF 订阅链接（https://.../sub）"/>
+            <input id="cfToken" placeholder="访问密钥（可选，不填可留空）"/>
             <button onclick="addSource('cf')">保存</button>
           </div>
         </details>
@@ -254,7 +254,7 @@ async function addSource(kind='sui'){
     const name=q(k==='cf'?'#cfName':'#suiName').value.trim();
     const panel_url=q(k==='cf'?'#cfPanel':'#suiPanel').value.trim();
     const panel_token=q(k==='cf'?'#cfToken':'#suiToken').value.trim();
-    await api('/api/sources',{method:'POST',body:JSON.stringify({name,panel_url,panel_token})});
+    await api('/api/sources',{method:'POST',body:JSON.stringify({name,panel_url,panel_token,source_type:(k==='cf'?'cf_sub':'sui_api')})});
     q(k==='cf'?'#cfName':'#suiName').value='';
     q(k==='cf'?'#cfPanel':'#suiPanel').value='';
     q(k==='cf'?'#cfToken':'#suiToken').value='';
