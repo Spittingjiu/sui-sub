@@ -1301,7 +1301,9 @@ app.get('/api/sui/:sourceId/inbounds', async (req, res) => {
     const sourceId = Number(req.params.sourceId);
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
-    if (String(source.source_type || 'sui_api') === 'local') return res.status(400).json({ ok: false, error: 'local source does not support SUI inbounds' });
+    const st = String(source.source_type || 'sui_api');
+    if (st === 'local') return res.status(400).json({ ok: false, error: 'local source does not support SUI inbounds' });
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports SUI manage APIs' });
     const j = await suiRequest(source, '/api/inbounds');
     if (!j?.success || !Array.isArray(j?.obj)) return res.status(500).json({ ok: false, error: 'sui response invalid' });
     res.json({ ok: true, inbounds: j.obj });
@@ -1315,6 +1317,8 @@ app.post('/api/sui/:sourceId/reality-quick', async (req, res) => {
     const sourceId = Number(req.params.sourceId);
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const st = String(source.source_type || 'sui_api');
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports reality quick' });
     const remark = String(req.body?.remark || `quick-${Date.now()}`).trim();
     const j = await suiRequest(source, '/api/inbounds/add-reality-quick', 'POST', { remark });
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'create failed' });
@@ -1334,6 +1338,8 @@ app.put('/api/sui/:sourceId/inbounds/:inboundId/rename', async (req, res) => {
     if (!remark) return res.status(400).json({ ok: false, error: 'remark required' });
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const st = String(source.source_type || 'sui_api');
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports rename inbounds' });
     const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'PUT', { remark });
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'rename failed' });
     await syncSource(sourceId).catch(()=>{});
@@ -1350,6 +1356,8 @@ app.delete('/api/sui/:sourceId/inbounds/:inboundId', async (req, res) => {
     const inboundId = Number(req.params.inboundId);
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
+    const st = String(source.source_type || 'sui_api');
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports delete inbounds' });
     const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'DELETE');
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'delete failed' });
     await syncSource(sourceId).catch(()=>{});
