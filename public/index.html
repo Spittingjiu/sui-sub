@@ -278,7 +278,7 @@ function renderSourcesUI(){
   const ordered=orderedSources();
   const cfSources=ordered.filter(s=>isCfSource(s));
   const suiSources=ordered.filter(s=>!isCfSource(s));
-  box.innerHTML=`${renderSourceGroup('SUI源',suiSources,true)}${renderSourceGroup('CF源',cfSources,false)}`;
+  box.innerHTML=`${renderSourceGroup('SUI源',suiSources,false)}${renderSourceGroup('CF源',cfSources,false)}`;
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
