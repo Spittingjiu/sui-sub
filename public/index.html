@@ -311,9 +311,11 @@ function isCfSource(s){
 }
 function renderSourceCard(s){
   const isCf=isCfSource(s);
+  const isLocal=isLocalSource(s);
   const enabled=Number(s?.enabled??1)?1:0;
-  const toggleBtn=isLocalSource(s)?'':`<button onclick="toggleSourceEnabled(${s.id})">${enabled?'停用':'启用'}</button>`;
-  return `<div class="src-item" style="opacity:${enabled?1:.65}"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${enabled?'<span class="ok">已启用</span>':'<span class="err">已停用</span>'}${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':(isCf?`<button onclick="openCfFilterModal(${s.id})">节点筛选</button>`:`<button onclick="openSecurePanel(${s.id})">安全访问</button>`)+toggleBtn+`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
+  const toggleBtn=isLocal?'':`<button onclick="toggleSourceEnabled(${s.id})">${enabled?'停用':'启用'}</button>`;
+  const statusTag=isLocal?'':(enabled?'<span class="ok">已启用</span>':'<span class="err">已停用</span>');
+  return `<div class="src-item" style="opacity:${enabled?1:.65}"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${statusTag}${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocal?'':(isCf?`<button onclick="openCfFilterModal(${s.id})">节点筛选</button>`:`<button onclick="openSecurePanel(${s.id})">安全访问</button>`)+toggleBtn+`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
 }
 function renderSourceGroup(title, list, open=true){
   return `<details ${open?'open':''} style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px"><summary style="cursor:pointer;user-select:none;font-weight:700">${title}（${list.length}）</summary><div style="margin-top:8px">${list.length?list.map(renderSourceCard).join(''):'<div class="muted">暂无</div>'}</div></details>`;
