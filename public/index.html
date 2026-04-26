@@ -259,10 +259,26 @@ function sourceSyncText(s){
   if(!s.last_sync_at) return '未同步';
   return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;
 }
+function isCfSource(s){
+  const type=String(s?.source_type||'').toLowerCase();
+  if(type.includes('cf') || type.includes('cloudflare')) return true;
+  const panel=String(s?.panel_url||'').toLowerCase();
+  const name=String(s?.name||'').toLowerCase();
+  return /(workers\.dev|cloudflare)/.test(panel) || /(^|[^a-z])cf([^a-z]|$)|cloudflare/.test(name);
+}
+function renderSourceCard(s){
+  return `<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':`<button onclick="openSecurePanel(${s.id})">安全访问</button><button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
+}
+function renderSourceGroup(title, list, open=true){
+  return `<details ${open?'open':''} style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px"><summary style="cursor:pointer;user-select:none;font-weight:700">${title}（${list.length}）</summary><div style="margin-top:8px">${list.length?list.map(renderSourceCard).join(''):'<div class="muted">暂无</div>'}</div></details>`;
+}
 function renderSourcesUI(){
   const box=q('#sources');
   if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter(); return;}
-  box.innerHTML=orderedSources().map(s=>`<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':`<button onclick="openSecurePanel(${s.id})">安全访问</button><button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`).join('');
+  const ordered=orderedSources();
+  const cfSources=ordered.filter(s=>isCfSource(s));
+  const suiSources=ordered.filter(s=>!isCfSource(s));
+  box.innerHTML=`${renderSourceGroup('SUI源',suiSources,true)}${renderSourceGroup('CF源',cfSources,false)}`;
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}
