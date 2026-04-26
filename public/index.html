@@ -343,12 +343,15 @@ function parseNodeMeta(n){
   try{
     const u=new URL(raw);
     host=(u.hostname||'').trim();
+    // 标准判定：纯 IPv4 / 含冒号即 IPv6 / 其余视为域名
     if(/^\d+\.\d+\.\d+\.\d+$/.test(host)) hostType='ipv4';
     else if(host.includes(':')) hostType='ipv6';
     else hostType='domain';
     transport=(u.searchParams.get('type')||'').toLowerCase()||'other';
     alpn=(u.searchParams.get('alpn')||'').toLowerCase();
   }catch(_e){}
+  // 回退保护：避免异常情况下 hostType 误判导致筛选放行
+  if(hostType!=='ipv4' && hostType!=='ipv6' && hostType!=='domain') hostType='domain';
   const nn=name.toUpperCase();
   const tags=[];
   if(/移动/.test(name)) tags.push('移动');
@@ -435,6 +438,9 @@ function applyCfFilter(){
 
 function passCfFilter(node){
   const sid=String(node?.source_id||'');
+  const src=(sources||[]).find(s=>String(s.id)===sid);
+  // 非 CF 源不应用 CF 筛选
+  if(!isCfSource(src||{})) return true;
   const d=cfFilterDraft[sid];
   if(!d) return true;
   const hasAny=[...Object.values(d)].some(s=>s&&s.size>0);
@@ -762,6 +768,7 @@ function pruneSelectedByCfFilter(){
   }
 }
 function renderSubModal(){
+  pruneSelectedByCfFilter();
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
   const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
   picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${n.node_name||('#'+n.id)} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
