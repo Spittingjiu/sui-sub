@@ -177,8 +177,10 @@
       <div class="row" style="margin-top:10px">
         <input id="modalSubName" placeholder="订阅名称" style="max-width:320px"/>
         <select id="modalSourceFilter" style="min-width:220px"></select>
+        <label style="display:inline-flex;align-items:center;gap:6px"><input id="modalOnlyCf" type="checkbox"> 仅显示CF源节点</label>
         <button onclick="saveSubModal()">保存</button>
       </div>
+      <div id="modalFilterStat" class="muted" style="margin-top:6px">筛选后可选：0 / 原始：0</div>
       <div class="muted" style="margin-top:8px">先选源，再选该源的节点</div>
       <div id="modalPicked" class="chips" style="margin-top:6px"></div>
       <div id="modalNodeList" class="sel-list"></div>
@@ -767,8 +769,17 @@ function renderModalSourceFilter(){
 }
 function modalNodes(){
   const sid=q('#modalSourceFilter')?.value||'all';
-  if(sid==='all') return modalAllNodes.filter(n=>passCfFilter(n));
-  return modalAllNodes.filter(n=>String(n.source_id)===sid && passCfFilter(n));
+  const onlyCf=q('#modalOnlyCf')?.checked===true;
+  const base=(sid==='all')
+    ? modalAllNodes
+    : modalAllNodes.filter(n=>String(n.source_id)===sid);
+  return base.filter(n=>{
+    if(onlyCf){
+      const src=(sources||[]).find(s=>String(s.id)===String(n.source_id));
+      if(!isCfSource(src||{})) return false;
+    }
+    return passCfFilter(n);
+  });
 }
 function pruneSelectedByCfFilter(){
   // 订阅编辑时，避免“筛选外的 CF 节点”继续残留在已选列表里
@@ -785,6 +796,14 @@ function pruneSelectedByCfFilter(){
 function renderSubModal(){
   pruneSelectedByCfFilter();
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
+  const stat=q('#modalFilterStat');
+  if(stat){
+    const sid=q('#modalSourceFilter')?.value||'all';
+    const onlyCf=q('#modalOnlyCf')?.checked===true;
+    const base=(sid==='all')?modalAllNodes:modalAllNodes.filter(n=>String(n.source_id)===sid);
+    const visible=nodes.length;
+    stat.textContent=`筛选后可选：${visible} / 原始：${base.length}${onlyCf?'（仅CF）':''}`;
+  }
   const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
   picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${n.node_name||('#'+n.id)} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
   list.innerHTML=nodes.length?nodes.map(n=>`<label style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin:6px 0;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||('#'+n.id))}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join(''):'<div class="muted">该源暂无节点</div>';
@@ -814,6 +833,8 @@ async function openSubModal(sub=null){
   const sid=q('#modalSourceFilter')?.value||'all';
   const j=await api('/api/view/modal-nodes'+(sid!=='all'?`?sourceId=${sid}`:''));
   modalAllNodes=j.nodes||[];
+  const onlyCf=q('#modalOnlyCf');
+  if(onlyCf){ onlyCf.onchange=()=>renderSubModal(); }
   renderSubModal();
   q('#subModal').classList.remove('hide');
 }
