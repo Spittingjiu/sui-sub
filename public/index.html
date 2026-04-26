@@ -90,13 +90,28 @@
 
     <div id="tab-home">
       <div class="card">
-        <h3 style="margin:0">新增连接源（SUI API）</h3>
-        <div class="grid" style="margin-top:10px">
-          <input id="name" placeholder="名称（例如：东京）"/>
-          <input id="panel" placeholder="面板地址（https://panel.example.com）"/>
-          <input id="token" placeholder="SUI API Token（或填 账号:密码）"/>
-          <button onclick="addSource()">保存</button>
-        </div>
+        <h3 style="margin:0">新增连接源</h3>
+
+        <details style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:10px">
+          <summary style="cursor:pointer;user-select:none;font-weight:700">新建 SUI 源</summary>
+          <div class="grid" style="margin-top:10px">
+            <input id="suiName" placeholder="名称（例如：东京）"/>
+            <input id="suiPanel" placeholder="面板地址（https://panel.example.com）"/>
+            <input id="suiToken" placeholder="SUI API Token（或填 账号:密码）"/>
+            <button onclick="addSource('sui')">保存</button>
+          </div>
+        </details>
+
+        <details style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px">
+          <summary style="cursor:pointer;user-select:none;font-weight:700">新建 CF 源</summary>
+          <div class="grid" style="margin-top:10px">
+            <input id="cfName" placeholder="名称（例如：CF-东京）"/>
+            <input id="cfPanel" placeholder="面板地址（https://panel.example.com）"/>
+            <input id="cfToken" placeholder="SUI API Token（或填 账号:密码）"/>
+            <button onclick="addSource('cf')">保存</button>
+          </div>
+        </details>
+
         <div id="msg" class="muted" style="margin-top:8px"></div>
       </div>
       <div class="card">
@@ -233,13 +248,16 @@ async function checkAuth(){const r=await fetch('/api/auth/me'); if(r.status===20
 async function login(){try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent='';checkAuth();}catch(e){q('#lmsg').textContent=e.message;}}
 async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});location.reload();}
 
-async function addSource(){
+async function addSource(kind='sui'){
   try{
-    const name=q('#name').value.trim();
-    const panel_url=q('#panel').value.trim();
-    const panel_token=q('#token').value.trim();
+    const k=String(kind||'sui').toLowerCase()==='cf'?'cf':'sui';
+    const name=q(k==='cf'?'#cfName':'#suiName').value.trim();
+    const panel_url=q(k==='cf'?'#cfPanel':'#suiPanel').value.trim();
+    const panel_token=q(k==='cf'?'#cfToken':'#suiToken').value.trim();
     await api('/api/sources',{method:'POST',body:JSON.stringify({name,panel_url,panel_token})});
-    q('#name').value='';q('#panel').value='';q('#token').value='';
+    q(k==='cf'?'#cfName':'#suiName').value='';
+    q(k==='cf'?'#cfPanel':'#suiPanel').value='';
+    q(k==='cf'?'#cfToken':'#suiToken').value='';
     toast('已保存，自动同步中…','ok');
     await refreshAll();
   }catch(e){toast(e.message,'err')}
