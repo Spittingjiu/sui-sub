@@ -425,6 +425,9 @@ function applyCfFilter(){
   // 不管当前在“全部源”还是单源，都立即重算数量与列表
   renderNodeSourceSelect();
   renderNodes();
+  // 若订阅编辑弹窗正在打开，也要同步刷新可选节点
+  const subModal=q('#subModal');
+  if(subModal && !subModal.classList.contains('hide')) renderSubModal();
 }
 
 function passCfFilter(node){
@@ -738,7 +741,11 @@ function renderModalSourceFilter(){
     renderSubModal();
   };
 }
-function modalNodes(){const sid=q('#modalSourceFilter')?.value||'all'; return sid==='all'?modalAllNodes:modalAllNodes.filter(n=>String(n.source_id)===sid)}
+function modalNodes(){
+  const sid=q('#modalSourceFilter')?.value||'all';
+  if(sid==='all') return modalAllNodes.filter(n=>passCfFilter(n));
+  return modalAllNodes.filter(n=>String(n.source_id)===sid && passCfFilter(n));
+}
 function renderSubModal(){
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
   const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
