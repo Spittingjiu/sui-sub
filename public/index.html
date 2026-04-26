@@ -488,23 +488,22 @@ function setLocalAddVisible(){
 function renderNodeSourceSelect(){
   const sel=q('#nodeSourceSelect'); if(!sel) return;
   const filteredRows=(allNodes||[]).filter(n=>passCfFilter(n));
-  const countBySource=new Map();
+  const filteredCountBySource=new Map();
   for(const n of filteredRows){
     const sid=Number(n.source_id||0);
     if(!sid) continue;
-    countBySource.set(sid, Number(countBySource.get(sid)||0)+1);
+    filteredCountBySource.set(sid, Number(filteredCountBySource.get(sid)||0)+1);
   }
 
+  const total = sources.reduce((a,s)=>a+Number(s.node_count||0),0);
   const local = sources.find(s=>String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual');
   const nonLocal = sources.filter(s=>!(String(s.source_type||'sui_api')==='local' || String(s.panel_url||'')==='local://manual'));
 
-  const options=[`<option value=\"all\">全部源（${filteredRows.length}）</option>`];
-  if(local){
-    const c=Number(countBySource.get(Number(local.id))||0);
-    options.push(`<option value=\"${local.id}\">本地节点（${c}）</option>`);
-  }
+  const options=[`<option value=\"all\">全部源（${total}）</option>`];
+  if(local) options.push(`<option value=\"${local.id}\">本地节点（${Number(local.node_count||0)}）</option>`);
   options.push(...nonLocal.map(s=>{
-    const c=Number(countBySource.get(Number(s.id))||0);
+    const isCf=isCfSource(s);
+    const c=isCf?Number(filteredCountBySource.get(Number(s.id))||0):Number(s.node_count||0);
     return `<option value=\"${s.id}\">${s.name}（${c}）</option>`;
   }));
 
