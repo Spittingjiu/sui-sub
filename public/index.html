@@ -425,9 +425,12 @@ function applyCfFilter(){
   // 不管当前在“全部源”还是单源，都立即重算数量与列表
   renderNodeSourceSelect();
   renderNodes();
-  // 若订阅编辑弹窗正在打开，也要同步刷新可选节点
+  // 若订阅编辑弹窗正在打开，也要同步刷新可选节点，并剔除筛选外已选项
   const subModal=q('#subModal');
-  if(subModal && !subModal.classList.contains('hide')) renderSubModal();
+  if(subModal && !subModal.classList.contains('hide')){
+    pruneSelectedByCfFilter();
+    renderSubModal();
+  }
 }
 
 function passCfFilter(node){
@@ -745,6 +748,18 @@ function modalNodes(){
   const sid=q('#modalSourceFilter')?.value||'all';
   if(sid==='all') return modalAllNodes.filter(n=>passCfFilter(n));
   return modalAllNodes.filter(n=>String(n.source_id)===sid && passCfFilter(n));
+}
+function pruneSelectedByCfFilter(){
+  // 订阅编辑时，避免“筛选外的 CF 节点”继续残留在已选列表里
+  const nodeById=new Map((modalAllNodes||[]).map(n=>[Number(n.id), n]));
+  const sourceById=new Map((sources||[]).map(s=>[Number(s.id), s]));
+  for(const id of [...selectedNodeIds]){
+    const n=nodeById.get(Number(id));
+    if(!n) continue;
+    const src=sourceById.get(Number(n.source_id)) || {name:n.source_name, source_type:n.source_type};
+    if(!isCfSource(src)) continue;
+    if(!passCfFilter(n)) selectedNodeIds.delete(Number(id));
+  }
 }
 function renderSubModal(){
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
