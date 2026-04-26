@@ -286,6 +286,15 @@ async function editSourceName(id){
   toast('源名称已更新','ok');
   await refreshAll();
 }
+async function toggleSourceEnabled(id){
+  const s=(sources||[]).find(x=>Number(x.id)===Number(id));
+  if(!s) return;
+  const next=Number(s.enabled??1)?0:1;
+  await api('/api/sources/'+id,{method:'PUT',body:JSON.stringify({enabled:next})});
+  toast(next?'源已启用':'源已停用','ok');
+  await refreshAll();
+  await loadNodes();
+}
 async function deleteSource(id){if(!confirm('确认删除该源？'))return;await api('/api/sources/'+id,{method:'DELETE'});await refreshAll();}
 
 function sourceSyncText(s){
@@ -302,7 +311,9 @@ function isCfSource(s){
 }
 function renderSourceCard(s){
   const isCf=isCfSource(s);
-  return `<div class="src-item"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':(isCf?`<button onclick="openCfFilterModal(${s.id})">节点筛选</button>`:`<button onclick="openSecurePanel(${s.id})">安全访问</button>`)+`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
+  const enabled=Number(s?.enabled??1)?1:0;
+  const toggleBtn=isLocalSource(s)?'':`<button onclick="toggleSourceEnabled(${s.id})">${enabled?'停用':'启用'}</button>`;
+  return `<div class="src-item" style="opacity:${enabled?1:.65}"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${enabled?'<span class="ok">已启用</span>':'<span class="err">已停用</span>'}${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocalSource(s)?'':(isCf?`<button onclick="openCfFilterModal(${s.id})">节点筛选</button>`:`<button onclick="openSecurePanel(${s.id})">安全访问</button>`)+toggleBtn+`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
 }
 function renderSourceGroup(title, list, open=true){
   return `<details ${open?'open':''} style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px"><summary style="cursor:pointer;user-select:none;font-weight:700">${title}（${list.length}）</summary><div style="margin-top:8px">${list.length?list.map(renderSourceCard).join(''):'<div class="muted">暂无</div>'}</div></details>`;

@@ -142,7 +142,9 @@ if (!sourceCols.includes('panel_token')) db.exec(`ALTER TABLE sources ADD COLUMN
 if (!sourceCols.includes('last_sync_at')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_at TEXT`);
 if (!sourceCols.includes('last_sync_status')) db.exec(`ALTER TABLE sources ADD COLUMN last_sync_status TEXT`);
 if (!sourceCols.includes('source_type')) db.exec(`ALTER TABLE sources ADD COLUMN source_type TEXT NOT NULL DEFAULT 'sui_api'`);
+if (!sourceCols.includes('enabled')) db.exec(`ALTER TABLE sources ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`);
 db.prepare(`UPDATE sources SET source_type='sui_api' WHERE source_type IS NULL OR source_type=''`).run();
+db.prepare(`UPDATE sources SET enabled=1 WHERE enabled IS NULL`).run();
 sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
 const hasTokenUrlCol = sourceCols.includes('token_url');
 const hasSourceTypeCol = sourceCols.includes('source_type');
@@ -1023,9 +1025,27 @@ app.put('/api/sources/:id', (req, res) => {
     const id = Number(req.params.id);
     const old = db.prepare('SELECT * FROM sources WHERE id=?').get(id);
     if (!old) return res.status(404).json({ ok: false, error: 'source not found' });
-    const name = String(req.body?.name || '').trim();
-    if (!name) return res.status(400).json({ ok: false, error: 'name 必填' });
-    db.prepare('UPDATE sources SET name=? WHERE id=?').run(name, id);
+
+    const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
+    const hasEnabled = Object.prototype.hasOwnProperty.call(req.body || {}, 'enabled');
+    if (!hasName && !hasEnabled) return res.status(400).json({ ok: false, error: 'name 或 enabled 至少传一个' });
+
+    let name = old.name;
+    let enabled = Number(old.enabled ?? 1) ? 1 : 0;
+
+    if (hasName) {
+      const nm = String(req.body?.name || '').trim();
+      if (!nm) return res.status(400).json({ ok: false, error: 'name 必填' });
+      name = nm;
+    }
+    if (hasEnabled) {
+      enabled = Number(req.body?.enabled) ? 1 : 0;
+      if (String(old.source_type || 'sui_api') === 'local' && enabled === 0) {
+        return res.status(400).json({ ok: false, error: '本地源不可停用' });
+      }
+    }
+
+    db.prepare('UPDATE sources SET name=?, enabled=? WHERE id=?').run(name, enabled, id);
     cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
@@ -1105,7 +1125,7 @@ app.get('/api/view/nodes', (req, res) => {
       FROM nodes n
       LEFT JOIN sources s ON s.id=n.source_id
       LEFT JOIN node_connectivity c ON c.node_id=n.id
-      WHERE n.source_id=?
+      WHERE n.source_id=? AND COALESCE(s.enabled,1)=1
       ORDER BY n.id DESC
     `).all(sourceId);
   } else {
@@ -1116,6 +1136,7 @@ app.get('/api/view/nodes', (req, res) => {
       FROM nodes n
       LEFT JOIN sources s ON s.id=n.source_id
       LEFT JOIN node_connectivity c ON c.node_id=n.id
+      WHERE COALESCE(s.enabled,1)=1
       ORDER BY n.id DESC
     `).all();
   }
@@ -1221,6 +1242,7 @@ app.get('/api/view/bootstrap', (req, res) => {
   const nodes = db.prepare(`
     SELECT n.*, s.name as source_name
     FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+    WHERE COALESCE(s.enabled,1)=1
     ORDER BY n.id DESC
   `).all();
 
@@ -1256,13 +1278,14 @@ app.get('/api/view/modal-nodes', (req, res) => {
     rows = db.prepare(`
       SELECT n.*, s.name as source_name, s.source_type as source_type
       FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
-      WHERE n.source_id=?
+      WHERE n.source_id=? AND COALESCE(s.enabled,1)=1
       ORDER BY n.id DESC
     `).all(sourceId);
   } else {
     rows = db.prepare(`
       SELECT n.*, s.name as source_name, s.source_type as source_type
       FROM nodes n LEFT JOIN sources s ON s.id=n.source_id
+      WHERE COALESCE(s.enabled,1)=1
       ORDER BY n.id DESC
     `).all();
   }
