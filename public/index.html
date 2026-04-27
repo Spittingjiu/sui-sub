@@ -161,6 +161,12 @@
           <input id="adminPass" type="password" placeholder="新密码（留空=不修改）" style="max-width:260px"/>
           <button onclick="saveAdminUser()">保存设置</button>
         </div>
+        <div class="row" style="margin-top:10px;gap:10px;align-items:center;flex-wrap:wrap">
+          <input id="autoConnectivityMin" type="number" min="1" max="1440" placeholder="连通性扫描间隔(分钟)" style="max-width:240px"/>
+          <input id="autoConnectivityLimit" type="number" min="1" max="200" placeholder="单次扫描节点上限" style="max-width:240px"/>
+          <button onclick="runConnectivityNow()">立即扫描一次</button>
+        </div>
+        <div id="connectivityStatus" class="muted" style="margin-top:8px">连通性状态：未加载</div>
       </div>
       <div class="card">
         <h3>订阅更新日志</h3>
@@ -854,8 +860,46 @@ async function quickReality(){const sel=q('#suiSource');if(!sel||!sel.value)retu
 async function renameSuiInbound(sourceId,inboundId,oldRemarkEnc=''){const old=decodeURIComponent(oldRemarkEnc||'');const remark=prompt('输入新备注：',old);if(remark===null)return;const v=String(remark||'').trim();if(!v)return toast('备注不能为空','err');await api(`/api/sui/${sourceId}/inbounds/${inboundId}/rename`,{method:'PUT',body:JSON.stringify({remark:v})});toast('节点备注已更新','ok');await refreshAll();await loadSuiNodes();}
 async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该节点？'))return;await api(`/api/sui/${sourceId}/inbounds/${inboundId}`,{method:'DELETE'});toast('节点已删除','ok');await refreshAll();await loadSuiNodes();}
 
-async function loadAdminUser(){const j=await api('/api/admin/user');q('#adminUser').value=j.username||'';q('#adminPass').value='';await loadSubLogs();}
-async function saveAdminUser(){const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim();if(!username)return toast('用户名必填','err');if(password&&password.length<6)return toast('密码至少6位（或留空不改）','err');await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password})});q('#adminPass').value='';toast('用户设置已更新并生效','ok');}
+function renderConnectivityStatus(st={}){
+  const el=q('#connectivityStatus');
+  if(!el) return;
+  const running=Number(st.running||0)===1;
+  const lastAt=st.last_at?new Date(st.last_at).toLocaleString():'未执行';
+  const checked=Number(st.last_checked||0);
+  const ok=Number(st.last_ok||0);
+  const fail=Number(st.last_fail||0);
+  const dur=Number(st.last_duration_ms||0);
+  const err=String(st.last_error||'').trim();
+  el.textContent=`连通性状态：${running?'扫描中':'空闲'} ｜ 最近执行：${lastAt} ｜ 扫描${checked}个（ok ${ok} / fail ${fail}）${dur?` ｜ 耗时 ${dur}ms`:''}${err?` ｜ 错误：${err}`:''}`;
+}
+
+async function loadAdminUser(){
+  const j=await api('/api/admin/user');
+  q('#adminUser').value=j.username||'';
+  q('#adminPass').value='';
+  if(q('#autoConnectivityMin')) q('#autoConnectivityMin').value=Math.max(1,Math.round(Number(j.auto_connectivity_ms||600000)/60000));
+  if(q('#autoConnectivityLimit')) q('#autoConnectivityLimit').value=Number(j.auto_connectivity_limit||60);
+  renderConnectivityStatus(j.connectivity_status||{});
+  await loadSubLogs();
+}
+
+async function saveAdminUser(){
+  const username=(q('#adminUser').value||'').trim(),password=(q('#adminPass').value||'').trim();
+  const autoMin=Math.max(1,Number(q('#autoConnectivityMin')?.value||10));
+  const autoLimit=Math.max(1,Math.min(200,Number(q('#autoConnectivityLimit')?.value||60)));
+  if(!username)return toast('用户名必填','err');
+  if(password&&password.length<6)return toast('密码至少6位（或留空不改）','err');
+  const j=await api('/api/admin/user',{method:'POST',body:JSON.stringify({username,password,auto_connectivity_ms:autoMin*60000,auto_connectivity_limit:autoLimit})});
+  q('#adminPass').value='';
+  renderConnectivityStatus(j.connectivity_status||{});
+  toast('用户与连通性设置已更新并生效','ok');
+}
+
+async function runConnectivityNow(){
+  const j=await api('/api/admin/connectivity/run-now',{method:'POST',body:'{}'});
+  renderConnectivityStatus(j.connectivity_status||{});
+  toast('已完成一次连通性扫描','ok');
+}
 
 async function loadSubLogs(){
   const box=q('#subLogs');

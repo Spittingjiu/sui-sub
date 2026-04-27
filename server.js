@@ -22,8 +22,10 @@ const ADMIN_PASS = process.env.SUI_SUB_PASS || 'admin123';
 const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-change-me';
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
-const AUTO_CONNECTIVITY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MS || 10 * 60 * 1000);
-const AUTO_CONNECTIVITY_LIMIT = Math.max(1, Math.min(60, Number(process.env.SUI_SUB_CONNECTIVITY_LIMIT || 60)));
+const DEFAULT_AUTO_CONNECTIVITY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MS || 10 * 60 * 1000);
+const DEFAULT_AUTO_CONNECTIVITY_LIMIT = Math.max(1, Math.min(200, Number(process.env.SUI_SUB_CONNECTIVITY_LIMIT || 60)));
+let autoConnectivityMs = DEFAULT_AUTO_CONNECTIVITY_MS;
+let autoConnectivityLimit = DEFAULT_AUTO_CONNECTIVITY_LIMIT;
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
@@ -156,6 +158,8 @@ if (!subCols.includes('auto_prune_unreachable')) db.exec(`ALTER TABLE subscripti
 
 let adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
 if (!adminCols.includes('template_url')) db.exec(`ALTER TABLE admin_settings ADD COLUMN template_url TEXT NOT NULL DEFAULT ''`);
+if (!adminCols.includes('auto_connectivity_ms')) db.exec(`ALTER TABLE admin_settings ADD COLUMN auto_connectivity_ms INTEGER NOT NULL DEFAULT 0`);
+if (!adminCols.includes('auto_connectivity_limit')) db.exec(`ALTER TABLE admin_settings ADD COLUMN auto_connectivity_limit INTEGER NOT NULL DEFAULT 0`);
 adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sub_logs_created_at ON subscription_logs(created_at DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sub_logs_token ON subscription_logs(token)`);
@@ -165,16 +169,30 @@ if (!rowAdmin) {
   db.prepare('INSERT INTO admin_settings(id,username,password,template_url) VALUES(1,?,?,?)').run(ADMIN_USER, ADMIN_PASS, DEFAULT_CLASH_TEMPLATE_URL);
 }
 function getAdminSettings(){
-  const row = db.prepare('SELECT username,password,template_url FROM admin_settings WHERE id=1').get();
-  if (!row) return { username: ADMIN_USER, password: ADMIN_PASS, template_url: DEFAULT_CLASH_TEMPLATE_URL };
+  const row = db.prepare('SELECT username,password,template_url,auto_connectivity_ms,auto_connectivity_limit FROM admin_settings WHERE id=1').get();
+  if (!row) return {
+    username: ADMIN_USER,
+    password: ADMIN_PASS,
+    template_url: DEFAULT_CLASH_TEMPLATE_URL,
+    auto_connectivity_ms: DEFAULT_AUTO_CONNECTIVITY_MS,
+    auto_connectivity_limit: DEFAULT_AUTO_CONNECTIVITY_LIMIT
+  };
+  const normalized = normalizeConnectivitySettings(row.auto_connectivity_ms || DEFAULT_AUTO_CONNECTIVITY_MS, row.auto_connectivity_limit || DEFAULT_AUTO_CONNECTIVITY_LIMIT);
   return {
     username: row.username,
     password: row.password,
-    template_url: String(row.template_url || DEFAULT_CLASH_TEMPLATE_URL)
+    template_url: String(row.template_url || DEFAULT_CLASH_TEMPLATE_URL),
+    auto_connectivity_ms: normalized.ms,
+    auto_connectivity_limit: normalized.limit
   };
 }
-function setAdminSettings(username,password,template_url){
-  db.prepare('UPDATE admin_settings SET username=?, password=?, template_url=? WHERE id=1').run(username,password,template_url);
+function setAdminSettings(username,password,template_url,autoConnectivityMsIn,autoConnectivityLimitIn){
+  const normalized = normalizeConnectivitySettings(autoConnectivityMsIn, autoConnectivityLimitIn);
+  db.prepare('UPDATE admin_settings SET username=?, password=?, template_url=?, auto_connectivity_ms=?, auto_connectivity_limit=? WHERE id=1')
+    .run(username,password,template_url, normalized.ms, normalized.limit);
+  autoConnectivityMs = normalized.ms;
+  autoConnectivityLimit = normalized.limit;
+  scheduleConnectivitySweepTimer();
 }
 
 
@@ -460,9 +478,43 @@ async function runConnectivityBatch(sourceId = 0, limit = 20) {
 }
 
 let connectivitySweepRunning = false;
+let connectivitySweepLastAt = '';
+let connectivitySweepLastChecked = 0;
+let connectivitySweepLastOk = 0;
+let connectivitySweepLastFail = 0;
+let connectivitySweepLastError = '';
+let connectivitySweepLastDurationMs = 0;
+
+function normalizeConnectivitySettings(ms, limit) {
+  const m = Math.max(60 * 1000, Math.min(24 * 60 * 60 * 1000, Number(ms || DEFAULT_AUTO_CONNECTIVITY_MS)));
+  const l = Math.max(1, Math.min(200, Number(limit || DEFAULT_AUTO_CONNECTIVITY_LIMIT)));
+  return { ms: m, limit: l };
+}
+
+let connectivitySweepTimer = null;
+function scheduleConnectivitySweepTimer() {
+  if (connectivitySweepTimer) clearInterval(connectivitySweepTimer);
+  connectivitySweepTimer = setInterval(() => autoConnectivitySweep().catch(() => {}), autoConnectivityMs);
+}
+
+function getConnectivitySettingsStatus() {
+  return {
+    auto_connectivity_ms: autoConnectivityMs,
+    auto_connectivity_limit: autoConnectivityLimit,
+    running: connectivitySweepRunning ? 1 : 0,
+    last_at: connectivitySweepLastAt,
+    last_checked: connectivitySweepLastChecked,
+    last_ok: connectivitySweepLastOk,
+    last_fail: connectivitySweepLastFail,
+    last_error: connectivitySweepLastError,
+    last_duration_ms: connectivitySweepLastDurationMs
+  };
+}
+
 async function autoConnectivitySweep() {
   if (connectivitySweepRunning) return;
   connectivitySweepRunning = true;
+  const started = Date.now();
   try {
     const rows = db.prepare(`
       SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token
@@ -471,12 +523,19 @@ async function autoConnectivitySweep() {
       WHERE COALESCE(n.enabled,1)=1 AND COALESCE(s.enabled,1)=1
       ORDER BY n.id DESC
       LIMIT ?
-    `).all(AUTO_CONNECTIVITY_LIMIT);
-    if (rows.length) {
-      await runConnectivityRows(rows);
-      cacheInvalidate();
-    }
+    `).all(autoConnectivityLimit);
+    const ret = rows.length ? await runConnectivityRows(rows) : [];
+    connectivitySweepLastAt = now();
+    connectivitySweepLastChecked = ret.length;
+    connectivitySweepLastOk = ret.filter(x => x.status === 'ok').length;
+    connectivitySweepLastFail = ret.filter(x => x.status !== 'ok').length;
+    connectivitySweepLastError = '';
+    connectivitySweepLastDurationMs = Math.max(1, Date.now() - started);
+    if (rows.length) cacheInvalidate();
   } catch (e) {
+    connectivitySweepLastAt = now();
+    connectivitySweepLastError = String(e?.message || e);
+    connectivitySweepLastDurationMs = Math.max(1, Date.now() - started);
     console.error('[connectivity-sweep] failed:', e?.message || e);
   } finally {
     connectivitySweepRunning = false;
@@ -935,7 +994,13 @@ app.get('/api/nodes/connectivity', (req, res) => {
 
 app.get('/api/admin/user', (_req, res) => {
   const adm = getAdminSettings();
-  res.json({ ok: true, username: adm.username });
+  res.json({
+    ok: true,
+    username: adm.username,
+    auto_connectivity_ms: adm.auto_connectivity_ms,
+    auto_connectivity_limit: adm.auto_connectivity_limit,
+    connectivity_status: getConnectivitySettingsStatus()
+  });
 });
 
 app.post('/api/admin/user', (req, res) => {
@@ -943,14 +1008,29 @@ app.post('/api/admin/user', (req, res) => {
     const current = getAdminSettings();
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
+    const autoConnectivityMsIn = Number(req.body?.auto_connectivity_ms || current.auto_connectivity_ms || DEFAULT_AUTO_CONNECTIVITY_MS);
+    const autoConnectivityLimitIn = Number(req.body?.auto_connectivity_limit || current.auto_connectivity_limit || DEFAULT_AUTO_CONNECTIVITY_LIMIT);
 
     if (!username) return res.status(400).json({ ok: false, error: 'username 必填' });
     if (password && password.length < 6) return res.status(400).json({ ok: false, error: 'password 至少6位' });
 
     const nextPassword = password || current.password;
-    setAdminSettings(username, nextPassword, current.template_url || DEFAULT_CLASH_TEMPLATE_URL);
+    setAdminSettings(username, nextPassword, current.template_url || DEFAULT_CLASH_TEMPLATE_URL, autoConnectivityMsIn, autoConnectivityLimitIn);
     cacheInvalidate();
-    res.json({ ok: true });
+    res.json({ ok: true, connectivity_status: getConnectivitySettingsStatus() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/admin/connectivity/run-now', async (_req, res) => {
+  try {
+    if (connectivitySweepRunning) {
+      return res.json({ ok: true, queued: false, connectivity_status: getConnectivitySettingsStatus() });
+    }
+    await autoConnectivitySweep();
+    cacheInvalidate();
+    res.json({ ok: true, queued: true, connectivity_status: getConnectivitySettingsStatus() });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -2422,8 +2502,13 @@ migrateLocalNodeDisplayNames();
 
 app.listen(PORT, () => {
   console.log(`sui-sub listening on :${PORT}`);
+  const adm = getAdminSettings();
+  autoConnectivityMs = Number(adm.auto_connectivity_ms || DEFAULT_AUTO_CONNECTIVITY_MS);
+  autoConnectivityLimit = Number(adm.auto_connectivity_limit || DEFAULT_AUTO_CONNECTIVITY_LIMIT);
+
   autoSyncAll().catch(() => {});
   setInterval(() => autoSyncAll().catch(() => {}), AUTO_SYNC_MS);
+
   autoConnectivitySweep().catch(() => {});
-  setInterval(() => autoConnectivitySweep().catch(() => {}), AUTO_CONNECTIVITY_MS);
+  scheduleConnectivitySweepTimer();
 });
