@@ -1315,7 +1315,8 @@ app.all('/panel-proxy/:sourceId/*', async (req, res) => {
 
     const inHeaders = req.headers || {};
     const outHeaders = {};
-    const passHeaders = ['accept', 'accept-language', 'content-type', 'origin', 'referer', 'user-agent'];
+    // 不透传前端站点的 origin/referer，避免上游面板把登录重定向到 sub 站点域名
+    const passHeaders = ['accept', 'accept-language', 'content-type', 'user-agent'];
     for (const k of passHeaders) {
       if (inHeaders[k]) outHeaders[k] = inHeaders[k];
     }
@@ -1348,8 +1349,10 @@ app.all('/panel-proxy/:sourceId/*', async (req, res) => {
     if (loc) {
       try {
         const abs = new URL(loc, target.toString());
-        const sameOrigin = abs.origin === new URL(panelUrl).origin;
-        if (sameOrigin) {
+        const panelOrigin = new URL(panelUrl).origin;
+        const currentOrigin = `${req.protocol}://${req.get('host')}`;
+        const shouldRewrite = abs.origin === panelOrigin || abs.origin === currentOrigin;
+        if (shouldRewrite) {
           const proxied = `/panel-proxy/${sourceId}${abs.pathname}${abs.search || ''}${abs.hash || ''}`;
           res.setHeader('location', proxied);
         } else {
