@@ -564,8 +564,11 @@ function normalizeConnectivitySettings(ms, limit) {
 
 let connectivitySweepTimer = null;
 function scheduleConnectivitySweepTimer() {
-  if (connectivitySweepTimer) clearInterval(connectivitySweepTimer);
-  connectivitySweepTimer = setInterval(() => autoConnectivitySweep().catch(() => {}), autoConnectivityMs);
+  // 已按需求关闭“定时连通性测试”
+  if (connectivitySweepTimer) {
+    clearInterval(connectivitySweepTimer);
+    connectivitySweepTimer = null;
+  }
 }
 
 function getConnectivitySettingsStatus() {
@@ -2656,6 +2659,6 @@ app.listen(PORT, () => {
   autoSyncAll().catch(() => {});
   setInterval(() => autoSyncAll().catch(() => {}), AUTO_SYNC_MS);
 
-  autoConnectivitySweep().catch(() => {});
+  // 已按需求关闭启动即跑与定时轮询；改为订阅拉取时触发 + 手动触发
   scheduleConnectivitySweepTimer();
 });
