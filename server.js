@@ -2495,6 +2495,46 @@ function getSubNodeLinksBySub(sub) {
   return rows.map(x => normalizeUniversalRawLink(x.raw_link));
 }
 
+function getSubConnectivityRows(sub, limit = 200) {
+  if (!sub) return [];
+  const sourceIds = (JSON.parse(sub.source_ids_json || '[]') || []).map(Number).filter(Boolean);
+  const nodeIds = (JSON.parse(sub.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+  const lim = Math.max(1, Math.min(200, Number(limit || 200)));
+
+  if (nodeIds.length) {
+    const p = nodeIds.map(() => '?').join(',');
+    return db.prepare(`
+      SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      WHERE COALESCE(n.enabled,1)=1 AND COALESCE(s.enabled,1)=1 AND n.id IN (${p})
+      ORDER BY n.id DESC
+      LIMIT ?
+    `).all(...nodeIds, lim);
+  }
+
+  if (sourceIds.length) {
+    const p = sourceIds.map(() => '?').join(',');
+    return db.prepare(`
+      SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      WHERE COALESCE(n.enabled,1)=1 AND COALESCE(s.enabled,1)=1 AND n.source_id IN (${p})
+      ORDER BY n.id DESC
+      LIMIT ?
+    `).all(...sourceIds, lim);
+  }
+
+  return [];
+}
+
+async function refreshSubscriptionConnectivity(sub) {
+  const rows = getSubConnectivityRows(sub, autoConnectivityLimit || DEFAULT_AUTO_CONNECTIVITY_LIMIT || 60);
+  if (!rows.length) return;
+  await runConnectivityRows(rows);
+  cacheInvalidate();
+}
+
 function detectClientIp(req) {
   const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
   if (xff.length) return xff[0];
@@ -2555,9 +2595,10 @@ function recordSubscriptionLog(req, sub, routeType) {
   } catch (_e) {}
 }
 
-app.get('/sub/:token', (req, res) => {
+app.get('/sub/:token', async (req, res) => {
   const sub = getSubByToken(req.params.token);
   if (!sub) return res.status(404).send('not found');
+  try { await refreshSubscriptionConnectivity(sub); } catch (_e) {}
   const links = getSubNodeLinksBySub(sub);
   recordSubscriptionLog(req, sub, 'plain-base64');
   const encoded = Buffer.from((links || []).join('\n'), 'utf8').toString('base64');
@@ -2565,9 +2606,10 @@ app.get('/sub/:token', (req, res) => {
   res.send(encoded);
 });
 
-app.get('/api/sub/:token/plain', (req, res) => {
+app.get('/api/sub/:token/plain', async (req, res) => {
   const sub = getSubByToken(req.params.token);
   if (!sub) return res.status(404).send('not found');
+  try { await refreshSubscriptionConnectivity(sub); } catch (_e) {}
   const links = getSubNodeLinksBySub(sub);
   recordSubscriptionLog(req, sub, 'plain');
   res.setHeader('content-type', 'text/plain; charset=utf-8');
@@ -2581,6 +2623,7 @@ app.get('/api/sub/:token/plain', (req, res) => {
 app.get('/sub/:token/clash', async (req, res) => {
   const sub = getSubByToken(req.params.token);
   if (!sub) return res.status(404).send('not found');
+  try { await refreshSubscriptionConnectivity(sub); } catch (_e) {}
   const links = getSubNodeLinksBySub(sub);
   recordSubscriptionLog(req, sub, 'clash-compat');
   const yaml = await buildClashConfigByLinks(links || []);
@@ -2591,6 +2634,7 @@ app.get('/sub/:token/clash', async (req, res) => {
 app.get('/api/sub/:token/clash', async (req, res) => {
   const sub = getSubByToken(req.params.token);
   if (!sub) return res.status(404).send('not found');
+  try { await refreshSubscriptionConnectivity(sub); } catch (_e) {}
   const links = getSubNodeLinksBySub(sub);
   recordSubscriptionLog(req, sub, 'clash-api-compat');
   const yaml = await buildClashConfigByLinks(links || []);
