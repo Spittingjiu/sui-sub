@@ -34,6 +34,7 @@ const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_
 
 const MIHOMO_BIN = '/usr/local/bin/mihomo';
 const MIHOMO_TMP = path.join(__dirname, 'data', 'mihomo-install');
+const CONNECTIVITY_MAX_LATENCY_MS = 2000;
 
 
 function ensureE2EEKeys(){
@@ -409,7 +410,11 @@ async function checkNodeConnectivity(row) {
   if (String(row?.source_type || 'sui_api') === 'local') {
     const hp = parseHostPortFromRawLink(row?.raw_link || '');
     if (!hp) return { status: 'disconnected', latency_ms: null, last_error: 'cannot parse host/port from local node link' };
-    return await tcpCheckHostPort(hp.host, hp.port, 5000);
+    const ret = await tcpCheckHostPort(hp.host, hp.port, CONNECTIVITY_MAX_LATENCY_MS);
+    if (ret.status === 'ok' && Number(ret.latency_ms || 0) > CONNECTIVITY_MAX_LATENCY_MS) {
+      return { status: 'disconnected', latency_ms: null, last_error: `latency>${CONNECTIVITY_MAX_LATENCY_MS}ms` };
+    }
+    return ret;
   }
   if (!row?.panel_token) return { status: 'disconnected', latency_ms: null, last_error: 'panel token empty' };
 
@@ -422,17 +427,25 @@ async function checkNodeConnectivity(row) {
 
   const start = Date.now();
   try {
-    const inboundId = await findSuiInboundIdByNodeHash(source, row.node_hash);
+    const inboundId = await findSuiInboundIdByNodeHash(source, row.node_hash, CONNECTIVITY_MAX_LATENCY_MS);
     const payload = { host: 'cp.cloudflare.com', port: 443 };
     if (inboundId) payload.inboundId = Number(inboundId);
 
-    const j = await suiRequest(source, '/api/system/chain/test', 'POST', payload);
+    const j = await suiRequest(source, '/api/system/chain/test', 'POST', payload, CONNECTIVITY_MAX_LATENCY_MS);
+    const latency = Math.max(1, Date.now() - start);
     if (j?.success) {
-      return { status: 'ok', latency_ms: Math.max(1, Date.now() - start), last_error: '' };
+      if (latency > CONNECTIVITY_MAX_LATENCY_MS) {
+        return { status: 'disconnected', latency_ms: null, last_error: `latency>${CONNECTIVITY_MAX_LATENCY_MS}ms` };
+      }
+      return { status: 'ok', latency_ms: latency, last_error: '' };
     }
     return { status: 'fail', latency_ms: null, last_error: String(j?.msg || 'chain test failed').slice(0, 180) };
   } catch (e) {
-    return { status: 'fail', latency_ms: null, last_error: String(e?.message || e).slice(0, 180) };
+    const msg = String(e?.message || e).slice(0, 180);
+    if (String(msg).toLowerCase().includes('timeout')) {
+      return { status: 'disconnected', latency_ms: null, last_error: `timeout>${CONNECTIVITY_MAX_LATENCY_MS}ms` };
+    }
+    return { status: 'fail', latency_ms: null, last_error: msg };
   }
 }
 
@@ -751,12 +764,12 @@ async function fetchCfSubscriptionLinks(source) {
   return nodes;
 }
 
-async function findSuiInboundIdByNodeHash(source, nodeHash) {
-  const j = await suiRequest(source, '/api/inbounds');
+async function findSuiInboundIdByNodeHash(source, nodeHash, timeoutMs = 8000) {
+  const j = await suiRequest(source, '/api/inbounds', 'GET', undefined, timeoutMs);
   if (!j?.success || !Array.isArray(j?.obj)) return null;
   for (const ib of j.obj) {
     if (!ib?.id) continue;
-    const lj = await suiRequest(source, `/api/inbounds/${ib.id}/links`);
+    const lj = await suiRequest(source, `/api/inbounds/${ib.id}/links`, 'GET', undefined, timeoutMs);
     if (!lj?.success || !Array.isArray(lj?.obj)) continue;
     for (const one of lj.obj) {
       if (typeof one !== 'string' || !one.trim()) continue;
