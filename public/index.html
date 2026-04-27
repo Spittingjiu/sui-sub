@@ -307,10 +307,33 @@ async function toggleSourceEnabled(id){
 }
 async function deleteSource(id){if(!confirm('确认删除该源？'))return;await api('/api/sources/'+id,{method:'DELETE'});await refreshAll();}
 
+function simplifySourceSyncStatus(raw=''){
+  const t=String(raw||'').trim();
+  if(!t) return '未同步';
+  const l=t.toLowerCase();
+  if(l==='ok') return '同步成功';
+  if(l==='pending') return '等待同步';
+  if(l==='local') return '本地源';
+
+  // 常见错误归一成简洁中文
+  if(/etimedout|connect timeout|timeout/.test(l)) return '连接超时，请检查面板地址/网络';
+  if(/econnrefused/.test(l)) return '连接被拒绝，请检查端口/服务是否启动';
+  if(/enotfound|getaddrinfo/.test(l)) return '域名解析失败，请检查域名配置';
+  if(/self[- ]signed|certificate|tls/.test(l)) return '证书或TLS握手异常';
+  if(/http\s*401|unauthorized/.test(l)) return '鉴权失败（Token无效或已过期）';
+  if(/http\s*403|forbidden/.test(l)) return '无权限访问该面板';
+  if(/http\s*404/.test(l)) return '接口地址不存在（404）';
+  if(/http\s*5\d\d/.test(l)) return '面板服务异常（5xx）';
+  if(/fetch failed|socket hang up|ehostunreach|enetunreach/.test(l)) return '网络不可达，请检查服务器连通性';
+
+  if(l.startsWith('error:')) return '同步失败，请检查源配置';
+  return t.length>42?`${t.slice(0,42)}…`:t;
+}
+
 function sourceSyncText(s){
   if(isLocalSource(s)) return '';
   if(!s.last_sync_at) return '未同步';
-  return `${s.last_sync_status||'unknown'} · ${new Date(s.last_sync_at).toLocaleString()}`;
+  return `${simplifySourceSyncStatus(s.last_sync_status||'')} · ${new Date(s.last_sync_at).toLocaleString()}`;
 }
 function isCfSource(s){
   const type=String(s?.source_type||'').toLowerCase();
