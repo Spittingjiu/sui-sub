@@ -6,7 +6,7 @@
   <title>sub订阅分发平台</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <style>
-    :root{--bg:#0b1020;--bg2:#0f1730;--card:#121933;--line:#263258;--line2:#36446f;--txt:#eef2ff;--muted:rgba(238,242,255,.72);--ok:#7ef8a5;--err:#ff8f8f;--card-grad1:#121933;--card-grad2:#0f1730;--src-bg:#0d1530;--src-line:#2b3963;--modal-grad1:#161f43;--modal-grad2:#101834}
+    :root{--bg:#0b1020;--bg2:#0f1730;--card:#121933;--line:#263258;--line2:#36446f;--txt:#eef2ff;--muted:rgba(238,242,255,.72);--ok:#7ef8a5;--err:#ff8f8f;--card-grad1:#121933;--card-grad2:#0f1730;--src-bg:#0d1530;--src-line:#2b3963;--modal-grad1:#161f43;--modal-grad2:#101834;--capsule-bg:#e9efff;--capsule-fg:#1b2440;--capsule-border:#c8d7ff}
     *{box-sizing:border-box}
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;margin:0;background:var(--bg);color:var(--txt);line-height:1.45;transition:background .2s,color .2s}
     body.auth-mode{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:18px}
@@ -21,7 +21,7 @@
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .muted{color:var(--muted);font-size:13px}
     .ok{color:var(--ok)} .err{color:var(--err)} .hide{display:none}
-    .pill{padding:3px 8px;border-radius:999px;background:#1d2850;color:#eef2ff;display:inline-block;font-size:12px}
+    .pill{padding:3px 8px;border-radius:999px;background:var(--capsule-bg);color:var(--capsule-fg);border:1px solid var(--capsule-border);display:inline-block;font-size:12px;font-weight:600}
     table{width:100%;border-collapse:collapse;min-width:560px}
     td,th{border-bottom:1px solid #243055;padding:4px 2px;text-align:left;font-size:13px}
     #nodes table{min-width:520px}
@@ -32,7 +32,7 @@
     #nodes th:nth-child(5),#nodes td:nth-child(5){width:64px;white-space:nowrap}
     #nodes th:nth-child(6),#nodes td:nth-child(6){width:170px;white-space:nowrap}
     .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6;color:#fff}
-    .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:#1d2850;color:#eef2ff;font-size:12px}
+    .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:var(--capsule-bg);color:var(--capsule-fg);border:1px solid var(--capsule-border);font-size:12px;font-weight:600}
     .sel-list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
     .src-item{padding:12px;border:1px solid var(--src-line);border-radius:12px;background:var(--src-bg);margin:8px 0}
     .src-item .row{row-gap:10px}
@@ -45,10 +45,12 @@
     #linkQr{width:220px;height:220px;border-radius:10px;border:1px solid #2b3963;background:#fff;padding:8px;display:block;margin:8px auto}
     #loginCard{width:min(460px,94vw);padding:20px}
 
-    body.theme-light{--bg:#f2f6ff;--bg2:#ffffff;--card:#ffffff;--line:#d8e2ff;--line2:#c5d4ff;--txt:#1b2440;--muted:rgba(27,36,64,.68);--ok:#16a34a;--err:#dc2626;--card-grad1:#ffffff;--card-grad2:#f7faff;--src-bg:#f8fbff;--src-line:#d5e1ff;--modal-grad1:#ffffff;--modal-grad2:#f7faff}
-    body.theme-light .pill{background:#e8efff;color:#1b2440;border:1px solid #c8d7ff}
-    body.theme-light .chip{background:#e8efff;color:#1b2440;border:1px solid #c8d7ff}
+    body.theme-light{--bg:#f2f6ff;--bg2:#ffffff;--card:#ffffff;--line:#d8e2ff;--line2:#c5d4ff;--txt:#1b2440;--muted:rgba(27,36,64,.68);--ok:#16a34a;--err:#dc2626;--card-grad1:#ffffff;--card-grad2:#f7faff;--src-bg:#f8fbff;--src-line:#d5e1ff;--modal-grad1:#ffffff;--modal-grad2:#f7faff;--capsule-bg:#1f2b52;--capsule-fg:#eef2ff;--capsule-border:#44588f}
     body.theme-light .tab-on{color:#fff}
+
+    .capsule-toggle{display:inline-flex;align-items:center;gap:8px;margin-top:8px;padding:6px 10px;border:1px solid var(--capsule-border);border-radius:999px;background:var(--capsule-bg);color:var(--capsule-fg);cursor:pointer;max-width:100%}
+    .capsule-toggle input{width:15px;height:15px;flex:0 0 auto}
+    .capsule-toggle-text{color:var(--capsule-fg);font-size:13px;line-height:1.35;white-space:normal;overflow:visible;text-overflow:clip}
 
 
     .log-box{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg2)}
@@ -194,9 +196,9 @@
         <select id="modalSourceFilter" style="min-width:220px"></select>
         <button onclick="saveSubModal()">保存</button>
       </div>
-      <label for="modalAutoPrune" style="display:inline-flex;align-items:center;gap:8px;margin-top:8px;padding:6px 10px;border:1px solid #2b3963;border-radius:999px;background:#0d1530;cursor:pointer;max-width:100%;color:#eef2ff">
-        <input id="modalAutoPrune" type="checkbox" style="width:15px;height:15px;flex:0 0 auto">
-        <span style="color:#eef2ff;font-size:13px;line-height:1.35;white-space:normal;overflow:visible;text-overflow:clip">自动剔除不通节点（不改勾选）</span>
+      <label for="modalAutoPrune" class="capsule-toggle">
+        <input id="modalAutoPrune" type="checkbox">
+        <span class="capsule-toggle-text">自动剔除不通节点（不改勾选）</span>
       </label>
       <div class="muted" style="margin-top:8px">先选源，再选该源的节点</div>
       <div id="modalPicked" class="chips" style="margin-top:6px"></div>
