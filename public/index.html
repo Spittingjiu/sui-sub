@@ -32,7 +32,7 @@
     #nodes th:nth-child(5),#nodes td:nth-child(5){width:64px;white-space:nowrap}
     #nodes th:nth-child(6),#nodes td:nth-child(6){width:170px;white-space:nowrap}
     .tab-on{background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-color:#6f7df6;color:#fff}
-    .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:4px 8px;border-radius:999px;background:var(--capsule-bg);color:var(--capsule-fg);border:1px solid var(--capsule-border);font-size:12px;font-weight:600}
+    .chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.chip{padding:4px 8px;max-width:280px;border-radius:999px;background:var(--capsule-bg);color:var(--capsule-fg);border:1px solid var(--capsule-border);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .sel-list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px}
     .src-item{padding:12px;border:1px solid var(--src-line);border-radius:12px;background:var(--src-bg);margin:8px 0}
     .src-item .row{row-gap:10px}
@@ -61,6 +61,8 @@
       .card{padding:14px}
       .row{gap:6px}
       #subs input[readonly]{max-width:100%;min-width:0;width:100%}
+      .chips{grid-template-columns:1fr}
+      .chip{max-width:100%}
     }
   </style>
 </head>
