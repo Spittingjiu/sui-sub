@@ -22,6 +22,8 @@ const ADMIN_PASS = process.env.SUI_SUB_PASS || 'admin123';
 const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-change-me';
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
+const AUTO_CONNECTIVITY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MS || 10 * 60 * 1000);
+const AUTO_CONNECTIVITY_LIMIT = Math.max(1, Math.min(60, Number(process.env.SUI_SUB_CONNECTIVITY_LIMIT || 60)));
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
 const DEFAULT_CLASH_TEMPLATE_URL = process.env.SUI_SUB_CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml';
 const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_MS || 5 * 60 * 1000);
@@ -150,6 +152,7 @@ const hasTokenUrlCol = sourceCols.includes('token_url');
 const hasSourceTypeCol = sourceCols.includes('source_type');
 const subCols = db.prepare(`PRAGMA table_info(subscriptions)`).all().map(x => x.name);
 if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD COLUMN node_ids_json TEXT NOT NULL DEFAULT '[]'`);
+if (!subCols.includes('auto_prune_unreachable')) db.exec(`ALTER TABLE subscriptions ADD COLUMN auto_prune_unreachable INTEGER NOT NULL DEFAULT 0`);
 
 let adminCols = db.prepare(`PRAGMA table_info(admin_settings)`).all().map(x => x.name);
 if (!adminCols.includes('template_url')) db.exec(`ALTER TABLE admin_settings ADD COLUMN template_url TEXT NOT NULL DEFAULT ''`);
@@ -415,12 +418,7 @@ async function checkNodeConnectivity(row) {
   }
 }
 
-async function runConnectivityBatch(sourceId = 0, limit = 20) {
-  const lim = Math.max(1, Math.min(60, Number(limit || 20)));
-  const rows = sourceId > 0
-    ? db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.source_id=? ORDER BY n.id DESC LIMIT ?`).all(sourceId, lim)
-    : db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id DESC LIMIT ?`).all(lim);
-
+async function runConnectivityRows(rows = []) {
   const mark = db.prepare('INSERT INTO node_connectivity(node_id,status,latency_ms,last_error,checked_at) VALUES(?,?,?,?,?) ON CONFLICT(node_id) DO UPDATE SET status=excluded.status,latency_ms=excluded.latency_ms,last_error=excluded.last_error,checked_at=excluded.checked_at');
   for (const row of rows) {
     mark.run(row.id, 'testing', null, '', now());
@@ -451,6 +449,38 @@ async function runConnectivityBatch(sourceId = 0, limit = 20) {
     }
   }
   return out;
+}
+
+async function runConnectivityBatch(sourceId = 0, limit = 20) {
+  const lim = Math.max(1, Math.min(200, Number(limit || 20)));
+  const rows = sourceId > 0
+    ? db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.source_id=? ORDER BY n.id DESC LIMIT ?`).all(sourceId, lim)
+    : db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id DESC LIMIT ?`).all(lim);
+  return await runConnectivityRows(rows);
+}
+
+let connectivitySweepRunning = false;
+async function autoConnectivitySweep() {
+  if (connectivitySweepRunning) return;
+  connectivitySweepRunning = true;
+  try {
+    const rows = db.prepare(`
+      SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token
+      FROM nodes n
+      LEFT JOIN sources s ON s.id=n.source_id
+      WHERE COALESCE(n.enabled,1)=1 AND COALESCE(s.enabled,1)=1
+      ORDER BY n.id DESC
+      LIMIT ?
+    `).all(AUTO_CONNECTIVITY_LIMIT);
+    if (rows.length) {
+      await runConnectivityRows(rows);
+      cacheInvalidate();
+    }
+  } catch (e) {
+    console.error('[connectivity-sweep] failed:', e?.message || e);
+  } finally {
+    connectivitySweepRunning = false;
+  }
 }
 
 
@@ -1286,6 +1316,7 @@ app.get('/api/view/bootstrap', (req, res) => {
       source_ids: sourceIds,
       source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
       node_ids: nodeIds,
+      auto_prune_unreachable: Number(s.auto_prune_unreachable || 0) ? 1 : 0,
       url: urlPath,
       full_url: `${getPublicBaseUrl(req)}${urlPath}`
     };
@@ -1338,6 +1369,7 @@ app.get('/api/view/subscriptions', (req, res) => {
       source_ids: sourceIds,
       source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
       node_ids: nodeIds,
+      auto_prune_unreachable: Number(s.auto_prune_unreachable || 0) ? 1 : 0,
       url: urlPath,
       full_url: `${getPublicBaseUrl(req)}${urlPath}`
     };
@@ -1556,6 +1588,7 @@ app.get('/api/subscriptions', (req, res) => {
       source_names: sourceIds.map(i => sourceMap.get(i)).filter(Boolean),
       node_ids: nodeIds,
       node_names: nodeIds.map(i => nodeMap.get(i)?.node_name || `#${i}`).filter(Boolean),
+      auto_prune_unreachable: Number(s.auto_prune_unreachable || 0) ? 1 : 0,
       url: `/sub/${s.token}`,
       created_at: s.created_at
     };
@@ -1565,14 +1598,15 @@ app.get('/api/subscriptions', (req, res) => {
 
 app.post('/api/subscriptions', (req, res) => {
   try {
-    const { name, source_ids, node_ids } = req.body || {};
+    const { name, source_ids, node_ids, auto_prune_unreachable } = req.body || {};
     const sids = Array.isArray(source_ids) ? source_ids.map(Number).filter(Boolean) : [];
     const nids = Array.isArray(node_ids) ? node_ids.map(Number).filter(Boolean) : [];
+    const autoPrune = Number(auto_prune_unreachable || 0) ? 1 : 0;
     if (!name) return res.status(400).json({ ok: false, error: 'name 必填' });
     if (!sids.length && !nids.length) return res.status(400).json({ ok: false, error: '至少选择 source 或 node' });
     const token = crypto.randomBytes(18).toString('base64url');
-    db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,created_at) VALUES(?,?,?,?,?)')
-      .run(String(name).trim(), token, JSON.stringify(sids), JSON.stringify(nids), now());
+    db.prepare('INSERT INTO subscriptions(name,token,source_ids_json,node_ids_json,auto_prune_unreachable,created_at) VALUES(?,?,?,?,?,?)')
+      .run(String(name).trim(), token, JSON.stringify(sids), JSON.stringify(nids), autoPrune, now());
     cacheInvalidate();
     res.json({ ok: true, token });
   } catch (e) {
@@ -1588,8 +1622,11 @@ app.put('/api/subscriptions/:id', (req, res) => {
     const name = String(req.body?.name || old.name).trim() || old.name;
     const sids = Array.isArray(req.body?.source_ids) ? req.body.source_ids.map(Number).filter(Boolean) : (JSON.parse(old.source_ids_json || '[]') || []);
     const nids = Array.isArray(req.body?.node_ids) ? req.body.node_ids.map(Number).filter(Boolean) : (JSON.parse(old.node_ids_json || '[]') || []);
+    const autoPrune = (req.body && Object.prototype.hasOwnProperty.call(req.body, 'auto_prune_unreachable'))
+      ? (Number(req.body?.auto_prune_unreachable || 0) ? 1 : 0)
+      : (Number(old.auto_prune_unreachable || 0) ? 1 : 0);
     if (!sids.length && !nids.length) return res.status(400).json({ ok: false, error: '至少选择 source 或 node' });
-    db.prepare('UPDATE subscriptions SET name=?, source_ids_json=?, node_ids_json=? WHERE id=?').run(name, JSON.stringify(sids), JSON.stringify(nids), id);
+    db.prepare('UPDATE subscriptions SET name=?, source_ids_json=?, node_ids_json=?, auto_prune_unreachable=? WHERE id=?').run(name, JSON.stringify(sids), JSON.stringify(nids), autoPrune, id);
     cacheInvalidate();
     res.json({ ok: true });
   } catch (e) {
@@ -2243,10 +2280,20 @@ function normalizeUniversalRawLink(raw) {
   }
 }
 
+function getReachableNodeIdSet() {
+  const rows = db.prepare(`
+    SELECT node_id
+    FROM node_connectivity
+    WHERE status='ok'
+  `).all();
+  return new Set(rows.map(r => Number(r.node_id)).filter(Boolean));
+}
+
 function getSubNodeLinksBySub(sub) {
   if (!sub) return null;
   const sourceIds = (JSON.parse(sub.source_ids_json || '[]') || []).map(Number).filter(Boolean);
   const nodeIds = (JSON.parse(sub.node_ids_json || '[]') || []).map(Number).filter(Boolean);
+  const autoPrune = Number(sub.auto_prune_unreachable || 0) ? 1 : 0;
 
   let rows = [];
   if (nodeIds.length) {
@@ -2256,6 +2303,12 @@ function getSubNodeLinksBySub(sub) {
     const p = sourceIds.map(()=>'?').join(',');
     rows = db.prepare(`SELECT id,raw_link FROM nodes WHERE enabled=1 AND source_id IN (${p}) ORDER BY id DESC`).all(...sourceIds);
   }
+
+  if (autoPrune) {
+    const reachable = getReachableNodeIdSet();
+    rows = rows.filter(r => reachable.has(Number(r.id)));
+  }
+
   return rows.map(x => normalizeUniversalRawLink(x.raw_link));
 }
 
@@ -2371,4 +2424,6 @@ app.listen(PORT, () => {
   console.log(`sui-sub listening on :${PORT}`);
   autoSyncAll().catch(() => {});
   setInterval(() => autoSyncAll().catch(() => {}), AUTO_SYNC_MS);
+  autoConnectivitySweep().catch(() => {});
+  setInterval(() => autoConnectivitySweep().catch(() => {}), AUTO_CONNECTIVITY_MS);
 });

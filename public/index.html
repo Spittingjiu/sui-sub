@@ -179,6 +179,7 @@
         <select id="modalSourceFilter" style="min-width:220px"></select>
         <button onclick="saveSubModal()">保存</button>
       </div>
+      <label class="muted" style="display:inline-flex;align-items:center;gap:6px;margin-top:8px"><input id="modalAutoPrune" type="checkbox"> 自动定时测连通并在下发订阅时剔除不通节点（不改你的勾选）</label>
       <div class="muted" style="margin-top:8px">先选源，再选该源的节点</div>
       <div id="modalPicked" class="chips" style="margin-top:6px"></div>
       <div id="modalNodeList" class="sel-list"></div>
@@ -800,6 +801,7 @@ async function openSubModal(sub=null){
   editingSubId=sub?.id||null;
   q('#subModalTitle').textContent=sub?'编辑订阅':'新建订阅';
   q('#modalSubName').value=sub?.name||'';
+  if(q('#modalAutoPrune')) q('#modalAutoPrune').checked=Number(sub?.auto_prune_unreachable||0)===1;
   selectedNodeIds.clear();
   (sub?.node_ids||[]).forEach(id=>selectedNodeIds.add(Number(id)));
 
@@ -825,9 +827,10 @@ async function openSubModal(sub=null){
 function closeSubModal(){q('#subModal').classList.add('hide')}
 async function saveSubModal(){
   const nodeIds=[...selectedNodeIds], name=(q('#modalSubName').value||'').trim()||`sub-${Date.now()}`;
+  const autoPrune=q('#modalAutoPrune')?.checked?1:0;
   if(!nodeIds.length)return toast('请先选择节点','err');
-  if(editingSubId) await api('/api/subscriptions/'+editingSubId,{method:'PUT',body:JSON.stringify({name,node_ids:nodeIds})});
-  else await api('/api/subscriptions',{method:'POST',body:JSON.stringify({name,node_ids:nodeIds})});
+  if(editingSubId) await api('/api/subscriptions/'+editingSubId,{method:'PUT',body:JSON.stringify({name,node_ids:nodeIds,auto_prune_unreachable:autoPrune})});
+  else await api('/api/subscriptions',{method:'POST',body:JSON.stringify({name,node_ids:nodeIds,auto_prune_unreachable:autoPrune})});
 
   // 持久化当前订阅的筛选快照（仅用于前端会话态恢复）
   const key=String(editingSubId||'new');
