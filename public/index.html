@@ -164,6 +164,7 @@
       </div>
       <div class="card">
         <h3>连通性调度</h3>
+        <div class="muted" style="margin-bottom:8px">用于后台自动检测节点连通性：按“扫描间隔”周期执行，每次最多检测“节点上限”个节点。检测结果会用于订阅里的“自动剔除不通节点”功能。</div>
         <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
           <input id="autoConnectivityMin" type="number" min="1" max="1440" placeholder="连通性扫描间隔(分钟)" style="max-width:240px"/>
           <input id="autoConnectivityLimit" type="number" min="1" max="200" placeholder="单次扫描节点上限" style="max-width:240px"/>
