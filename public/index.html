@@ -52,8 +52,8 @@
     .capsule-toggle input{width:15px;height:15px;flex:0 0 auto}
     .capsule-toggle-text{color:var(--capsule-fg);font-size:13px;line-height:1.35;white-space:normal;overflow:visible;text-overflow:clip}
     .modal-node-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-    .modal-node-item{background:#152149 !important;border-color:#3b4f86 !important}
-    body.theme-light .modal-node-item{background:#f3f8ff !important;border-color:#cad9ff !important}
+    .modal-node-item{background:#1c2b5a !important;border-color:#4e66a8 !important}
+    body.theme-light .modal-node-item{background:#f7faff !important;border-color:#d7e3ff !important}
 
 
     .log-box{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg2)}
@@ -263,7 +263,7 @@ const orderedSources=()=>[...sources].sort((a,b)=>{
   return Number(a.id||0)-Number(b.id||0);
 });
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
-async function api(url,opt={}){const r=await fetch(url,{headers:{'content-type':'application/json'},...opt});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
+async function api(url,opt={}){const method=String(opt?.method||'GET').toUpperCase();const h={'content-type':'application/json',...(opt?.headers||{})};if(!['GET','HEAD','OPTIONS'].includes(method))h['x-requested-with']='XMLHttpRequest';const r=await fetch(url,{...opt,headers:h});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
 function setAuthMode(v){document.body.classList.toggle('auth-mode',v)}
 function updateThemeButton(){
   const btn=q('#themeBtn');
@@ -365,9 +365,13 @@ function renderSourceCard(s){
   const isCf=isCfSource(s);
   const isLocal=isLocalSource(s);
   const enabled=Number(s?.enabled??1)?1:0;
-  const toggleBtn=isLocal?'':`<button onclick="toggleSourceEnabled(${s.id})">${enabled?'停用':'启用'}</button>`;
+  const sid=Number(s?.id||0);
+  const toggleBtn=isLocal?'':`<button onclick="toggleSourceEnabled(${sid})">${enabled?'停用':'启用'}</button>`;
   const statusTag=isLocal?'':(enabled?'<span class="ok">已启用</span>':'<span class="err">已停用</span>');
-  return `<div class="src-item" style="opacity:${enabled?1:.65}"><div class="row" style="justify-content:space-between"><div><b>${s.name}</b><div class="muted">${s.panel_url}</div></div><div class="row">${statusTag}${sourceSyncText(s)?`<span class="pill">${sourceSyncText(s)}</span>`:''}<button onclick="focusSource(${s.id})">看节点</button>${isLocal?'':(isCf?`<button onclick="openCfFilterModal(${s.id})">节点筛选</button>`:`<button onclick="openSecurePanel(${s.id})">安全访问</button>`)+toggleBtn+`<button onclick="editSourceName(${s.id})">改名</button><button onclick="deleteSource(${s.id})">删除</button>`}</div></div></div>`;
+  const nm=esc(s?.name||'');
+  const panel=esc(s?.panel_url||'');
+  const sync=esc(sourceSyncText(s)||'');
+  return `<div class="src-item" style="opacity:${enabled?1:.65}"><div class="row" style="justify-content:space-between"><div><b>${nm}</b><div class="muted">${panel}</div></div><div class="row">${statusTag}${sync?`<span class="pill">${sync}</span>`:''}<button onclick="focusSource(${sid})">看节点</button>${isLocal?'':(isCf?`<button onclick="openCfFilterModal(${sid})">节点筛选</button>`:`<button onclick="openSecurePanel(${sid})">安全访问</button>`)+toggleBtn+`<button onclick="editSourceName(${sid})">改名</button><button onclick="deleteSource(${sid})">删除</button>`}</div></div></div>`;
 }
 function renderSourceGroup(title, list, open=true){
   return `<details ${open?'open':''} style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px"><summary style="cursor:pointer;user-select:none;font-weight:700">${title}（${list.length}）</summary><div style="margin-top:8px">${list.length?list.map(renderSourceCard).join(''):'<div class="muted">暂无</div>'}</div></details>`;
@@ -586,7 +590,7 @@ function renderNodeSourceSelect(){
   for(const s of nonLocal){
     const isCf=isCfSource(s);
     const c=isCf?Number(filteredCountBySource.get(Number(s.id))||0):Number(s.node_count||0);
-    sourceItems.push({ id:String(s.id), label:s.name, count:c });
+    sourceItems.push({ id:String(s.id), label:esc(s.name||''), count:c });
   }
   const total=sourceItems.reduce((a,x)=>a+Number(x.count||0),0);
 
@@ -610,11 +614,12 @@ function renderNodes(){
   const rows=(allNodes||[]).filter(n=>passCfFilter(n)), box=q('#nodes');
   if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点（或被筛选条件过滤）</div>';return;}
   box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th><button onclick="checkConnectivity()" title="点击检测当前列表连通性" style="padding:4px 8px">连通性</button></th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
+    const id=Number(n.id||0);
     const isLocal=String(n.source_type||'sui_api')==='local';
     const op=isLocal
-      ? `<button onclick="toggleNode(${n.id})">切换</button> <button onclick="renameNode(${n.id})">改名</button> <button onclick="deleteLocalNode(${n.id})">删除</button>`
-      : `<button onclick="toggleNode(${n.id})">切换</button> <button onclick="renameNode(${n.id})">改名</button>`;
-    return `<tr><td>${n.id}</td><td>${n.source_name||n.source_id}</td><td>${n.node_name||''}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
+      ? `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button> <button onclick="deleteLocalNode(${id})">删除</button>`
+      : `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button>`;
+    return `<tr><td>${id}</td><td>${esc(n.source_name||n.source_id)}</td><td>${esc(n.node_name||'')}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
 let checkingConnectivity=false;
@@ -790,7 +795,7 @@ function renderSubsUI(arr){
       v2rayng:`v2rayng://install-config?url=${encodeURIComponent(full)}&remark=${encodeURIComponent((s.name||'sui-sub')+'-通用')}`
     };
     const row=document.createElement('div');row.className='src-item';
-    row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${s.name}</b><div class="muted">源：${(s.source_names||[]).join(', ')||'-'} · 节点数：${(s.node_ids||[]).length}</div><input readonly value="${full}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
+    row.innerHTML=`<div class="row" style="justify-content:space-between"><div style="flex:1 1 460px;min-width:280px"><b>${esc(s.name||'')}</b><div class="muted">源：${esc(((s.source_names||[]).join(', ')||'-'))} · 节点数：${Number((s.node_ids||[]).length||0)}</div><input readonly value="${esc(full)}" style="margin-top:8px;width:min(82%,560px)"></div><div class="row" style="justify-content:flex-end"><button data-act="copy">复制通用</button><button data-act="copy-clash">复制Clash</button><button data-act="edit">编辑</button><button data-act="delete">删除</button></div></div>`;
     row.querySelector('input').onclick=e=>e.target.select();
     row.querySelector('[data-act="copy"]').onclick=()=>openLinkModal(full, clashImportUri, generalImportUris);
     row.querySelector('[data-act="copy-clash"]').onclick=()=>openLinkModal(clashUrl, clashImportUri, {}, 'clash');
@@ -805,7 +810,7 @@ async function deleteSub(id){if(!confirm('确认删除此订阅？'))return;awai
 function renderModalSourceFilter(){
   const sel=q('#modalSourceFilter'); if(!sel) return;
   const old=sel.value||'all';
-  sel.innerHTML='<option value="all">全部源</option>'+orderedSources().map(s=>`<option value="${s.id}">${s.name}${String(s.source_type||'sui_api')==='local'?'（本地）':''}</option>`).join('');
+  sel.innerHTML='<option value="all">全部源</option>'+orderedSources().map(s=>`<option value="${Number(s.id||0)}">${esc(s.name||'')}${String(s.source_type||'sui_api')==='local'?'（本地）':''}</option>`).join('');
   sel.value=[...sel.options].some(o=>o.value===old)?old:'all';
   sel.onchange=async()=>{
     const sid=sel.value||'all';
@@ -840,7 +845,7 @@ function renderSubModal(){
   pruneSelectedByCfFilter();
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
   const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
-  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${n.node_name||('#'+n.id)} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
+  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${esc(n.node_name||('#'+n.id))} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
   list.innerHTML=nodes.length?`<div class="modal-node-grid">${nodes.map(n=>`<label class="modal-node-item" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||('#'+n.id))}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join('')}</div>`:'<div class="muted">该源暂无节点</div>';
   list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid);if(e.target.checked)selectedNodeIds.add(id);else selectedNodeIds.delete(id);renderSubModal();});
   picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
@@ -896,8 +901,8 @@ async function saveSubModal(){
   loadSubs();
 }
 
-function loadSuiSourceOptions(){const sel=q('#suiSource');if(!sel)return;const prev=sel.value;const suiSources=sources.filter(s=>String(s?.source_type||'sui_api')==='sui_api' && !isLocalSource(s));sel.innerHTML=suiSources.length?suiSources.map(s=>`<option value="${s.id}">${s.name} (${s.panel_url})</option>`).join(''):'<option value="">暂无可管理的 SUI 源</option>';if(prev&&[...sel.options].some(o=>o.value===prev))sel.value=prev;sel.onchange=()=>loadSuiNodes();}
-async function loadSuiNodes(){const sel=q('#suiSource'),box=q('#suiNodes');if(!sel||!sel.value){box.innerHTML='<div class="muted">暂无可管理的 SUI 源（本地源不在此页管理）</div>';return;}const sourceId=Number(sel.value);try{const j=await api(`/api/sui/${sourceId}/inbounds`),arr=j.inbounds||[];if(!arr.length){box.innerHTML='<div class="muted">暂无节点</div>';return;}box.innerHTML=`<table><thead><tr><th>ID</th><th>备注</th><th>协议</th><th>端口</th><th>状态</th><th>操作</th></tr></thead><tbody>${arr.map(i=>`<tr><td>${i.id}</td><td>${i.remark||''}</td><td>${i.protocol||''}</td><td>${i.port||''}</td><td>${i.enable?'<span class="ok">启用</span>':'<span class="err">停用</span>'}</td><td><button onclick="renameSuiInbound(${sourceId},${i.id},'${encodeURIComponent(i.remark||'')}')">改名</button> <button onclick="deleteSuiInbound(${sourceId},${i.id})">删除</button></td></tr>`).join('')}</tbody></table>`;}catch(e){box.innerHTML=`<div class="err">加载失败：${e.message}</div>`;}}
+function loadSuiSourceOptions(){const sel=q('#suiSource');if(!sel)return;const prev=sel.value;const suiSources=sources.filter(s=>String(s?.source_type||'sui_api')==='sui_api' && !isLocalSource(s));sel.innerHTML=suiSources.length?suiSources.map(s=>`<option value="${Number(s.id||0)}">${esc(s.name||'')} (${esc(s.panel_url||'')})</option>`).join(''):'<option value="">暂无可管理的 SUI 源</option>';if(prev&&[...sel.options].some(o=>o.value===prev))sel.value=prev;sel.onchange=()=>loadSuiNodes();}
+async function loadSuiNodes(){const sel=q('#suiSource'),box=q('#suiNodes');if(!sel||!sel.value){box.innerHTML='<div class="muted">暂无可管理的 SUI 源（本地源不在此页管理）</div>';return;}const sourceId=Number(sel.value);try{const j=await api(`/api/sui/${sourceId}/inbounds`),arr=j.inbounds||[];if(!arr.length){box.innerHTML='<div class="muted">暂无节点</div>';return;}box.innerHTML=`<table><thead><tr><th>ID</th><th>备注</th><th>协议</th><th>端口</th><th>状态</th><th>操作</th></tr></thead><tbody>${arr.map(i=>`<tr><td>${Number(i.id||0)}</td><td>${esc(i.remark||'')}</td><td>${esc(i.protocol||'')}</td><td>${esc(i.port||'')}</td><td>${i.enable?'<span class="ok">启用</span>':'<span class="err">停用</span>'}</td><td><button onclick="renameSuiInbound(${sourceId},${Number(i.id||0)},'${encodeURIComponent(i.remark||'')}')">改名</button> <button onclick="deleteSuiInbound(${sourceId},${Number(i.id||0)})">删除</button></td></tr>`).join('')}</tbody></table>`;}catch(e){box.innerHTML=`<div class="err">加载失败：${esc(e.message)}</div>`;}}
 async function quickReality(){const sel=q('#suiSource');if(!sel||!sel.value)return toast('请先选择可管理的 SUI 源','err');const sourceId=Number(sel.value);const remark=(q('#realityName')?.value||'').trim()||`quick-${Date.now()}`;await api(`/api/sui/${sourceId}/reality-quick`,{method:'POST',body:JSON.stringify({remark})});q('#realityName').value='';toast(`已创建 Reality 节点：${remark}`,'ok');await refreshAll();await loadSuiNodes();}
 async function renameSuiInbound(sourceId,inboundId,oldRemarkEnc=''){const old=decodeURIComponent(oldRemarkEnc||'');const remark=prompt('输入新备注：',old);if(remark===null)return;const v=String(remark||'').trim();if(!v)return toast('备注不能为空','err');await api(`/api/sui/${sourceId}/inbounds/${inboundId}/rename`,{method:'PUT',body:JSON.stringify({remark:v})});toast('节点备注已更新','ok');await refreshAll();await loadSuiNodes();}
 async function deleteSuiInbound(sourceId,inboundId){if(!confirm('确认删除该节点？'))return;await api(`/api/sui/${sourceId}/inbounds/${inboundId}`,{method:'DELETE'});toast('节点已删除','ok');await refreshAll();await loadSuiNodes();}

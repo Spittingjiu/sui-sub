@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
+import dns from 'node:dns/promises';
 import zlib from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 import fetch from 'node-fetch';
@@ -19,7 +20,12 @@ const PORT = process.env.PORT || 8780;
 
 const ADMIN_USER = process.env.SUI_SUB_USER || 'admin';
 const ADMIN_PASS = process.env.SUI_SUB_PASS || 'admin123';
-const SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || 'sui-sub-secret-change-me';
+const SESSION_SECRET_DEFAULT = 'sui-sub-secret-change-me';
+let SESSION_SECRET = process.env.SUI_SUB_SESSION_SECRET || SESSION_SECRET_DEFAULT;
+if (SESSION_SECRET === SESSION_SECRET_DEFAULT) {
+  SESSION_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[security] SUI_SUB_SESSION_SECRET is default; generated ephemeral in-memory secret for this runtime.');
+}
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const DEFAULT_AUTO_CONNECTIVITY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MS || 10 * 60 * 1000);
@@ -58,11 +64,15 @@ function ensureE2EEKeys(){
 
 const E2EE = ensureE2EEKeys();
 const NONCE_CACHE = new Map();
-function seenNonce(nonce){
+setInterval(() => {
   const nowTs = Date.now();
-  for (const [k,v] of NONCE_CACHE.entries()) if (v < nowTs) NONCE_CACHE.delete(k);
+  for (const [k, v] of NONCE_CACHE.entries()) {
+    if (v < nowTs) NONCE_CACHE.delete(k);
+  }
+}, 5 * 60 * 1000).unref();
+function seenNonce(nonce){
   if (NONCE_CACHE.has(nonce)) return true;
-  NONCE_CACHE.set(nonce, nowTs + 10 * 60 * 1000);
+  NONCE_CACHE.set(nonce, Date.now() + 10 * 60 * 1000);
   return false;
 }
 
@@ -285,6 +295,61 @@ function getPublicBaseUrl(req) {
   const proto = xfProto || req.protocol || 'http';
   const host = xfHost || req.get('host');
   return `${proto}://${host}`;
+}
+
+function isBlockedIp(ipRaw = '') {
+  const ip = String(ipRaw || '').trim();
+  if (!ip) return true;
+  if (ip === '::1' || ip === '::') return true;
+  if (ip.toLowerCase().startsWith('fe80:')) return true;
+  if (ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd')) return true;
+
+  if (net.isIP(ip) === 4) {
+    const p = ip.split('.').map(Number);
+    const [a, b] = p;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a >= 224) return true;
+  }
+  return false;
+}
+
+async function assertUrlSafe(targetUrl, reason = 'ssrf blocked') {
+  let u;
+  try {
+    u = new URL(String(targetUrl || '').trim());
+  } catch {
+    throw new Error('invalid target url');
+  }
+  if (!/^https?:$/i.test(u.protocol)) throw new Error('invalid target protocol');
+
+  const host = String(u.hostname || '').trim();
+  if (!host) throw new Error('invalid target host');
+  const lowerHost = host.toLowerCase();
+  if (lowerHost === 'localhost' || lowerHost === 'ip6-localhost' || lowerHost === 'metadata.google.internal') {
+    throw new Error(reason);
+  }
+  if (net.isIP(host)) {
+    if (isBlockedIp(host) || host === '169.254.169.254') throw new Error(reason);
+    return;
+  }
+
+  let resolved = [];
+  try {
+    resolved = await dns.lookup(host, { all: true, verbatim: true });
+  } catch {
+    return;
+  }
+  if (!resolved.length) return;
+  for (const rec of resolved) {
+    const addr = String(rec?.address || '').trim();
+    if (!addr) continue;
+    if (addr === '169.254.169.254' || isBlockedIp(addr)) throw new Error(reason);
+  }
 }
 
 function mihomoInstalled() {
@@ -559,7 +624,14 @@ function verifySession(token) {
   if (!token || !token.includes('.')) return null;
   const [payload, sig] = token.split('.');
   const good = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
-  if (sig !== good) return null;
+  try {
+    const sigBuf = Buffer.from(String(sig || ''), 'utf8');
+    const goodBuf = Buffer.from(String(good || ''), 'utf8');
+    if (sigBuf.length !== goodBuf.length) return null;
+    if (!crypto.timingSafeEqual(sigBuf, goodBuf)) return null;
+  } catch {
+    return null;
+  }
   try {
     const obj = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!obj?.user || !obj?.exp || obj.exp < Date.now()) return null;
@@ -597,6 +669,17 @@ function getSessionUser(req) {
 
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/sub/')) return requireAuth(req, res, next);
+  next();
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/auth/') || req.path.startsWith('/api/bridge/')) return next();
+  const m = String(req.method || 'GET').toUpperCase();
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
+  if (String(req.headers['x-requested-with'] || '').toLowerCase() !== 'xmlhttprequest') {
+    return res.status(403).json({ ok: false, error: 'csrf blocked: missing X-Requested-With' });
+  }
   next();
 });
 
@@ -690,6 +773,7 @@ function setUrlParam(rawLink, key, value) {
 
 async function suiRequest(source, apiPath, method = 'GET', body, timeoutMs = 8000) {
   const base = String(source.panel_url || '').replace(/\/$/, '');
+  await assertUrlSafe(base, 'ssrf blocked: panel url not allowed');
   const headers = { 'x-panel-token': source.panel_token, 'content-type': 'application/json' };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs || 8000)));
@@ -715,6 +799,7 @@ async function suiRequest(source, apiPath, method = 'GET', body, timeoutMs = 800
 
 async function fetchSuiPanelLinks(source) {
   const base = String(source.panel_url || '').replace(/\/$/, '');
+  await assertUrlSafe(base, 'ssrf blocked: panel url not allowed');
   const headers = { 'x-panel-token': source.panel_token };
   const publishHost = resolveSourcePublishHost(source.panel_url || base);
 
@@ -742,6 +827,7 @@ async function fetchSuiPanelLinks(source) {
 async function fetchCfSubscriptionLinks(source) {
   const subUrl = String(source.panel_url || '').trim();
   if (!subUrl) throw new Error('cf sub url empty');
+  await assertUrlSafe(subUrl, 'ssrf blocked: cf sub url not allowed');
   const headers = {
     'user-agent': 'sui-sub/1.0',
     'accept': 'text/plain,*/*'
@@ -1112,6 +1198,7 @@ app.post('/api/sources', async (req, res) => {
 
     if (st === 'cf_sub') {
       // CF 源按订阅链接拉取，token 可选
+      await assertUrlSafe(pu, 'ssrf blocked: cf sub url not allowed');
       const r = await fetch(pu, {
         headers: {
           'user-agent': 'sui-sub/1.0',
@@ -1130,6 +1217,7 @@ app.post('/api/sources', async (req, res) => {
         const username = m[1].trim();
         const password = m[2];
         const base = pu.replace(/\/$/, '');
+        await assertUrlSafe(base, 'ssrf blocked: panel url not allowed');
         const lr = await fetch(`${base}/api/login`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -1308,6 +1396,11 @@ app.all('/panel-proxy/:sourceId/*', async (req, res) => {
     const target = new URL(`${base}/${tail}`);
     const origQ = req.url.split('?')[1] || '';
     if (origQ) target.search = origQ;
+    try {
+      await assertUrlSafe(target.toString(), 'ssrf blocked: proxy target not allowed');
+    } catch (e) {
+      return res.status(403).send(e?.message || 'ssrf blocked');
+    }
 
     const reqMethod = String(req.method || 'GET').toUpperCase();
     const blockedMethods = new Set(['TRACE', 'CONNECT']);
@@ -1368,6 +1461,7 @@ app.all('/panel-proxy/:sourceId/*', async (req, res) => {
     const buf = Buffer.from(await r.arrayBuffer());
     res.send(buf);
   } catch (e) {
+    if (String(e?.message || '').includes('ssrf blocked')) return res.status(403).send(e.message);
     res.status(502).send(`panel proxy error: ${e.message}`);
   }
 });
