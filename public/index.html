@@ -194,7 +194,15 @@
         <select id="modalSourceFilter" style="min-width:220px"></select>
         <button onclick="saveSubModal()">保存</button>
       </div>
-      <label class="muted" style="display:inline-flex;align-items:center;gap:6px;margin-top:8px"><input id="modalAutoPrune" type="checkbox"> 自动定时测连通并在下发订阅时剔除不通节点（不改你的勾选）</label>
+      <label for="modalAutoPrune" style="display:block;margin-top:10px;cursor:pointer">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #2b3963;border-radius:10px;background:#0d1530">
+          <input id="modalAutoPrune" type="checkbox" style="margin-top:2px;width:16px;height:16px;flex:0 0 auto">
+          <div style="min-width:0">
+            <div style="font-weight:600;color:#eef2ff;line-height:1.35">自动剔除不通节点</div>
+            <div class="muted" style="font-size:12px;line-height:1.4;margin-top:2px">后台定时检测连通性；下发订阅时仅保留可用节点，不改你当前勾选</div>
+          </div>
+        </div>
+      </label>
       <div class="muted" style="margin-top:8px">先选源，再选该源的节点</div>
       <div id="modalPicked" class="chips" style="margin-top:6px"></div>
       <div id="modalNodeList" class="sel-list"></div>
