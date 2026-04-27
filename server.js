@@ -427,10 +427,28 @@ async function runConnectivityBatch(sourceId = 0, limit = 20) {
   }
 
   const out = [];
+  const sourceFastFail = new Map();
   for (const row of rows) {
+    const st = String(row?.source_type || 'sui_api');
+    const sid = Number(row?.source_id || 0);
+    if (st !== 'local' && sid > 0 && sourceFastFail.has(sid)) {
+      const cachedErr = String(sourceFastFail.get(sid) || 'source unavailable');
+      const ret = { status: 'fail', latency_ms: null, last_error: cachedErr };
+      mark.run(row.id, ret.status, ret.latency_ms, ret.last_error || '', now());
+      out.push({ node_id: row.id, ...ret });
+      continue;
+    }
+
     const ret = await checkNodeConnectivity(row);
     mark.run(row.id, ret.status, ret.latency_ms, ret.last_error || '', now());
     out.push({ node_id: row.id, ...ret });
+
+    if (st !== 'local' && sid > 0 && ret.status === 'fail') {
+      const err = String(ret.last_error || '').toLowerCase();
+      if (err.includes('timeout') || err.includes('fetch failed') || err.includes('/api/inbounds')) {
+        sourceFastFail.set(sid, ret.last_error || 'source unavailable');
+      }
+    }
   }
   return out;
 }
@@ -575,19 +593,29 @@ function setUrlParam(rawLink, key, value) {
 }
 
 
-async function suiRequest(source, apiPath, method = 'GET', body) {
+async function suiRequest(source, apiPath, method = 'GET', body, timeoutMs = 8000) {
   const base = String(source.panel_url || '').replace(/\/$/, '');
   const headers = { 'x-panel-token': source.panel_token, 'content-type': 'application/json' };
-  const r = await fetch(`${base}${apiPath}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const text = await r.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch {}
-  if (!r.ok) throw new Error(`${apiPath} HTTP ${r.status}`);
-  return json;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs || 8000)));
+  try {
+    const r = await fetch(`${base}${apiPath}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+    const text = await r.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    if (!r.ok) throw new Error(`${apiPath} HTTP ${r.status}`);
+    return json;
+  } catch (e) {
+    if (e?.name === 'AbortError') throw new Error(`${apiPath} timeout ${Math.max(1000, Number(timeoutMs || 8000))}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchSuiPanelLinks(source) {
