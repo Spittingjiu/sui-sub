@@ -35,6 +35,7 @@ const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_
 const MIHOMO_BIN = '/usr/local/bin/mihomo';
 const MIHOMO_TMP = path.join(__dirname, 'data', 'mihomo-install');
 const CONNECTIVITY_MAX_LATENCY_MS = 2000;
+const CONNECTIVITY_CONCURRENCY = Math.max(1, Math.min(30, Number(process.env.SUI_SUB_CONNECTIVITY_CONCURRENCY || 8)));
 
 
 function ensureE2EEKeys(){
@@ -455,31 +456,23 @@ async function runConnectivityRows(rows = []) {
     mark.run(row.id, 'testing', null, '', now());
   }
 
-  const out = [];
-  const sourceFastFail = new Map();
-  for (const row of rows) {
-    const st = String(row?.source_type || 'sui_api');
-    const sid = Number(row?.source_id || 0);
-    if (st !== 'local' && sid > 0 && sourceFastFail.has(sid)) {
-      const cachedErr = String(sourceFastFail.get(sid) || 'source unavailable');
-      const ret = { status: 'fail', latency_ms: null, last_error: cachedErr };
+  const out = new Array(rows.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(CONNECTIVITY_CONCURRENCY, rows.length || 1));
+
+  const worker = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= rows.length) return;
+      const row = rows[i];
+      const ret = await checkNodeConnectivity(row);
       mark.run(row.id, ret.status, ret.latency_ms, ret.last_error || '', now());
-      out.push({ node_id: row.id, ...ret });
-      continue;
+      out[i] = { node_id: row.id, ...ret };
     }
+  };
 
-    const ret = await checkNodeConnectivity(row);
-    mark.run(row.id, ret.status, ret.latency_ms, ret.last_error || '', now());
-    out.push({ node_id: row.id, ...ret });
-
-    if (st !== 'local' && sid > 0 && ret.status === 'fail') {
-      const err = String(ret.last_error || '').toLowerCase();
-      if (err.includes('timeout') || err.includes('fetch failed') || err.includes('/api/inbounds')) {
-        sourceFastFail.set(sid, ret.last_error || 'source unavailable');
-      }
-    }
-  }
-  return out;
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return out.filter(Boolean);
 }
 
 async function runConnectivityBatch(sourceId = 0, limit = 20) {
