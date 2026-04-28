@@ -169,6 +169,163 @@ bash scripts/sprint-a-proxy-smoke.sh
 
 ---
 
+## ☁️ Workers 完整版使用教程（`赛博菩萨.js`）
+
+> 你要求的“完整 Workers 版”主文件已经在仓库：`赛博菩萨.js`。
+> 这一节只讲怎么用，不做旧库迁移。
+
+### 1) 前置准备
+
+- 一个 Cloudflare 账号
+- 已安装 `wrangler`（建议 v3+）
+- 已登录：
+
+```bash
+npx wrangler login
+```
+
+### 2) 创建 Workers 项目并放入主文件
+
+在本仓库目录执行：
+
+```bash
+# 可选：初始化最小 wrangler 配置
+npx wrangler init sui-sub-workers
+```
+
+然后将 `赛博菩萨.js` 作为 Worker 入口（你可以直接用它替换默认 `src/index.js`，或在 wrangler 里指定 `main`）。
+
+### 3) 配置 `wrangler.toml`（核心）
+
+示例（按你的实际 ID 替换）：
+
+```toml
+name = "sui-sub-workers"
+main = "赛博菩萨.js"
+compatibility_date = "2026-04-28"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sui-sub-db"
+database_id = "<你的D1数据库ID>"
+
+# 可选：若后续要做缓存/静态资源
+# [[kv_namespaces]]
+# binding = "CACHE_KV"
+# id = "<你的KV_ID>"
+```
+
+### 4) 创建 D1 并初始化表
+
+先建库：
+
+```bash
+npx wrangler d1 create sui-sub-db
+```
+
+然后执行初始化 SQL（新建 `schema.sql`，至少包含以下表）：
+
+- `sources`
+- `nodes`
+- `subscriptions`
+- `node_connectivity`
+
+最小示例：
+
+```sql
+CREATE TABLE IF NOT EXISTS sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  panel_url TEXT NOT NULL,
+  panel_token TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'sui_api',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_sync_at TEXT,
+  last_sync_status TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL,
+  node_hash TEXT NOT NULL,
+  node_name TEXT,
+  raw_link TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(source_id, node_hash)
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  source_ids_json TEXT NOT NULL DEFAULT '[]',
+  node_ids_json TEXT NOT NULL DEFAULT '[]',
+  auto_prune_unreachable INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node_connectivity (
+  node_id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  latency_ms INTEGER,
+  last_error TEXT,
+  checked_at TEXT NOT NULL
+);
+```
+
+执行：
+
+```bash
+npx wrangler d1 execute sui-sub-db --file=./schema.sql
+```
+
+### 5) 设置密钥
+
+`赛博菩萨.js` 需要以下环境变量：
+
+- `ADMIN_PASSWORD`（登录密码）
+- `SESSION_SECRET`（会话签名密钥，建议高强度随机）
+
+设置命令：
+
+```bash
+npx wrangler secret put ADMIN_PASSWORD
+npx wrangler secret put SESSION_SECRET
+```
+
+### 6) 本地联调
+
+```bash
+npx wrangler dev
+```
+
+访问本地地址后：
+
+- `POST /api/auth/login`：用 `ADMIN_PASSWORD` 登录
+- `GET /api/auth/me`：检查会话
+- `GET /api/sources`：查看源
+- `GET /sub/:token`：下发订阅（会先触发一次该订阅连通性检测）
+
+### 7) 发布上线
+
+```bash
+npx wrangler deploy
+```
+
+上线后即可通过 `https://<worker域名>` 访问。
+
+---
+
+### 注意事项（务必看）
+
+1. `赛博菩萨.js` 是 Workers 全量主干，适配的是 D1 数据模型，不是本地 SQLite 文件。  
+2. 你要求“不迁移旧数据”，那就按新库直接开始使用。  
+3. 连通性检测在 Workers 内不做原生 TCP 直连，当前走上游 `sui_api` 的链路测试接口。  
+4. 若要接入你现有完整前端 UI，可把当前 `buildHtml()` 替换为静态资源分发（Pages/Assets）。
+
 ## API Documentation
 
 - English: `docs/API.md`
