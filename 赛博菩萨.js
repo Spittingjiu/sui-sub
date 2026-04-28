@@ -381,7 +381,10 @@ async function getSourceById(env, sourceId) {
   return await env.DB.prepare('SELECT * FROM sources WHERE id=?').bind(sourceId).first();
 }
 
-async function suiRequest(source, path, { method = 'GET', body } = {}) {
+async function suiRequest(source, path, options = {}) {
+  const method = String(options?.method || 'GET');
+  const hasBody = Object.prototype.hasOwnProperty.call(options || {}, 'body');
+  const body = hasBody ? options.body : undefined;
   const base = String(source?.panel_url || '').replace(/\/$/, '');
   if (!base) throw new Error('source panel_url empty');
   const headers = { 'accept': 'application/json', 'x-panel-token': String(source?.panel_token || '') };
