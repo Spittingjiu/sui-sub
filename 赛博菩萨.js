@@ -1333,7 +1333,7 @@ const orderedSources=()=>[...sources].sort((a,b)=>{
   return Number(a.id||0)-Number(b.id||0);
 });
 const toast=(t,c='')=>{const el=q('#msg');if(el){el.className=c;el.textContent=t;}};
-async function api(url,opt={}){const method=String(opt?.method||'GET').toUpperCase();const h={'content-type':'application/json',...(opt?.headers||{})};if(!['GET','HEAD','OPTIONS'].includes(method))h['x-requested-with']='XMLHttpRequest';const r=await fetch(url,{...opt,headers:h});const j=await r.json().catch(()=>({ok:false,error:'响应异常'}));if(!j.ok) throw new Error(j.error||'请求失败');return j;}
+async function api(url,opt={}){const method=String(opt?.method||'GET').toUpperCase();const h={'content-type':'application/json',...(opt?.headers||{})};if(!['GET','HEAD','OPTIONS'].includes(method))h['x-requested-with']='XMLHttpRequest';const r=await fetch(url,{...opt,headers:h});const txt=await r.text();let j=null;try{j=txt?JSON.parse(txt):{};}catch(_e){throw new Error('接口返回非JSON('+r.status+'): '+String(txt||'').slice(0,120));}if(!r.ok||!j?.ok) throw new Error(j?.error||('HTTP '+r.status));return j;}
 function setAuthMode(v){document.body.classList.toggle('auth-mode',v)}
 function updateThemeButton(){
   const btn=q('#themeBtn');
