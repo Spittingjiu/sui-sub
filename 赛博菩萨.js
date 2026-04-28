@@ -387,7 +387,12 @@ async function suiRequest(source, path, options = {}) {
   const body = hasBody ? options.body : undefined;
   const base = String(source?.panel_url || '').replace(/\/$/, '');
   if (!base) throw new Error('source panel_url empty');
-  const headers = { 'accept': 'application/json', 'x-panel-token': String(source?.panel_token || '') };
+  const token = String(source?.panel_token || '');
+  const headers = {
+    'accept': 'application/json',
+    'x-panel-token': token,
+    'authorization': token ? `Bearer ${token}` : ''
+  };
   if (body !== undefined) headers['content-type'] = 'application/json';
 
   let resp;
@@ -407,15 +412,15 @@ async function suiRequest(source, path, options = {}) {
 }
 
 async function suiRequestTry(source, paths = [], options = {}) {
-  let lastErr;
+  const errs = [];
   for (const p of paths) {
     try {
       return await suiRequest(source, p, options);
     } catch (e) {
-      lastErr = e;
+      errs.push(`${p}: ${String(e?.message || e)}`);
     }
   }
-  throw lastErr || new Error('sui request failed');
+  throw new Error(errs.join(' | ') || 'sui request failed');
 }
 
 function normalizeInbounds(obj) {
@@ -433,7 +438,7 @@ async function listSuiInbounds(path, env) {
     const source = await getSourceById(env, sourceId);
     if (!source) return json({ ok: false, error: 'source not found' }, 404);
     if (String(source.source_type || 'sui_api') !== 'sui_api') return json({ ok: false, error: 'source is not sui_api' }, 400);
-    const j = await suiRequestTry(source, ['/api/inbounds', '/api/panel/inbounds', '/api/system/inbounds']);
+    const j = await suiRequestTry(source, ['/api/inbounds', '/api/panel/inbounds']);
     return json({ ok: true, inbounds: normalizeInbounds(j) });
   } catch (e) {
     return json({ ok: false, error: `SUI inbounds load failed: ${String(e?.message || e)}` }, 500);
