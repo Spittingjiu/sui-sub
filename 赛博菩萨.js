@@ -146,6 +146,7 @@ export default {
       if (path === '/api/admin/user' && method === 'GET') return getAdminUser(env);
       if (path === '/api/admin/user' && method === 'POST') return saveAdminUser(request, env);
       if (path === '/api/admin/subscription-logs' && method === 'GET') return listSubLogs(request, env);
+      if (path === '/api/admin/selftest/clash' && method === 'GET') return clashSelfTest(env);
 
       // 连通性触发（手动）
       if (path === '/api/admin/connectivity/run-now' && method === 'POST') {
@@ -588,6 +589,26 @@ async function listSubLogs(request, env) {
   return json({ ok: true, logs: rows.results || [] });
 }
 
+async function clashSelfTest(env) {
+  const sample = [
+    'vless://11111111-1111-1111-1111-111111111111@example.com:443?type=ws&security=reality&sni=example.com&pbk=abc&sid=01&fp=chrome#vless-reality',
+    'hysteria2://pass@example.com:443?sni=example.com&obfs=salamander&obfs-password=xxx#hy2',
+    'trojan://pass@example.com:443?sni=example.com#trojan',
+    'ss://YWVzLTEyOC1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM=#ss',
+    'vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjIyMjIyMjIyLTIyMjItMjIyMi0yMjIyLTIyMjIyMjIyMjIyMiIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInBhdGgiOiIvIiwiaG9zdCI6ImV4YW1wbGUuY29tIiwidGxzIjoidGxzIiwic25pIjoiZXhhbXBsZS5jb20ifQ=='
+  ];
+  const y = await buildClashYamlFromLinks(sample, env);
+  const checks = {
+    hasProxies: /\nproxies:\n/.test(y),
+    hasVless: /type:\s*"vless"|type:\s*vless/.test(y),
+    hasHy2: /type:\s*"hysteria2"|type:\s*hysteria2/.test(y),
+    hasTrojan: /type:\s*"trojan"|type:\s*trojan/.test(y),
+    hasSS: /type:\s*"ss"|type:\s*ss/.test(y),
+    hasVMess: /type:\s*"vmess"|type:\s*vmess/.test(y)
+  };
+  return json({ ok: true, checks, length: y.length, preview: y.slice(0, 600) });
+}
+
 async function initSchema(env) {
   const sqlList = [
     `CREATE TABLE IF NOT EXISTS sources (
@@ -912,6 +933,8 @@ function parseLinkToProxyObj(raw = '', idx = 1) {
         alpn: u.searchParams.get('alpn') || undefined,
         'client-fingerprint': u.searchParams.get('fp') || undefined,
         'skip-cert-verify': u.searchParams.get('insecure') === '1' || u.searchParams.get('allowInsecure') === '1' || undefined,
+        'packet-encoding': u.searchParams.get('packetEncoding') || u.searchParams.get('packet-encoding') || undefined,
+        'udp-over-tcp': u.searchParams.get('uot') === '1' ? true : undefined,
         'reality-opts': sec === 'reality' ? `__RAW__{public-key: ${JSON.stringify(u.searchParams.get('pbk')||'')}, short-id: ${JSON.stringify(u.searchParams.get('sid')||'')}}` : undefined,
         'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(u.searchParams.get('path')||'/')}, headers: {Host: ${JSON.stringify(u.searchParams.get('host')||u.searchParams.get('sni')||'')}}}` : undefined,
         'grpc-opts': net==='grpc' ? `__RAW__{grpc-service-name: ${JSON.stringify(u.searchParams.get('serviceName')||u.searchParams.get('service')||'')}}` : undefined
@@ -924,6 +947,7 @@ function parseLinkToProxyObj(raw = '', idx = 1) {
         password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined,
         alpn: u.searchParams.get('alpn') || undefined,
         'skip-cert-verify': u.searchParams.get('insecure') === '1' || u.searchParams.get('allowInsecure') === '1' || undefined,
+        'udp-over-tcp': u.searchParams.get('uot') === '1' ? true : undefined,
         obfs: u.searchParams.get('obfs') || undefined,
         'obfs-password': u.searchParams.get('obfs-password') || undefined
       };
@@ -933,7 +957,7 @@ function parseLinkToProxyObj(raw = '', idx = 1) {
 }
 
 function proxyObjToInlineYaml(p) {
-  const order = ['name', 'type', 'server', 'port', 'udp', 'uuid', 'alterId', 'cipher', 'password', 'network', 'tls', 'servername', 'sni', 'flow', 'alpn', 'client-fingerprint', 'skip-cert-verify', 'reality-opts', 'ws-opts', 'grpc-opts', 'obfs', 'obfs-password'];
+  const order = ['name', 'type', 'server', 'port', 'udp', 'uuid', 'alterId', 'cipher', 'password', 'network', 'tls', 'servername', 'sni', 'flow', 'alpn', 'client-fingerprint', 'skip-cert-verify', 'packet-encoding', 'udp-over-tcp', 'reality-opts', 'ws-opts', 'grpc-opts', 'obfs', 'obfs-password'];
   const arr = [];
   for (const k of order) {
     if (p[k] === undefined || p[k] === null || p[k] === '') continue;
