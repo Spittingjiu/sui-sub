@@ -529,15 +529,21 @@ async function getAdminSettings(env) {
 
 async function registerAdmin(request, env) {
   const exists = await getAdminSettings(env);
-  if (exists) return json({ ok: false, error: '管理员已存在，不可重复注册' }, 409);
   const body = await safeJson(request);
   const username = String(body?.username || '').trim();
   const password = String(body?.password || '');
   if (!username) return json({ ok: false, error: 'username 必填' }, 400);
   if (password.length < 6) return json({ ok: false, error: 'password 至少6位' }, 400);
+
+  if (exists) {
+    await env.DB.prepare('UPDATE admin_settings SET username=?, password=?, updated_at=? WHERE id=1')
+      .bind(username, password, now()).run();
+    return json({ ok: true, username, reset: true });
+  }
+
   await env.DB.prepare('INSERT INTO admin_settings(id,username,password,auto_connectivity_ms,auto_connectivity_limit,updated_at) VALUES(1,?,?,600000,60,?)')
     .bind(username, password, now()).run();
-  return json({ ok: true, username });
+  return json({ ok: true, username, reset: false });
 }
 
 async function getConnectivityStatus(env) {
@@ -1138,7 +1144,7 @@ function buildHtml() {
     <input id="lu" placeholder="用户名" autocomplete="username"/>
     <input id="lp" type="password" placeholder="密码" autocomplete="current-password" style="margin-top:8px"/>
     <button onclick="login()" style="margin-top:8px;width:100%">进入控制台</button>
-    <button id="registerBtn" onclick="registerAdmin()" style="margin-top:8px;width:100%" class="hide">首次注册管理员</button>
+    <button id="registerBtn" onclick="registerAdmin()" style="margin-top:8px;width:100%">注册/重置管理员</button>
     <div id="lmsg" class="muted" style="margin-top:8px"></div>
   </div>
 
@@ -1360,12 +1366,11 @@ async function checkAuth(){
   try{
     const st=await api('/api/auth/status');
     const need=!!st.need_register;
-    q('#registerBtn')?.classList.toggle('hide',!need);
-    q('#lmsg').textContent=need?'首次使用请先注册管理员账号（用户名+密码）':'';
+    q('#lmsg').textContent=need?'首次使用请先注册管理员账号（用户名+密码）':'如忘记密码，可直接点“注册/重置管理员”覆盖';
   }catch(_e){}
 }
 async function login(){try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent='';checkAuth();}catch(e){q('#lmsg').textContent=e.message;}}
-async function registerAdmin(){try{await api('/api/auth/register',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent='注册成功，请直接登录';q('#registerBtn')?.classList.add('hide');}catch(e){q('#lmsg').textContent=e.message;}}
+async function registerAdmin(){try{const j=await api('/api/auth/register',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent=j.reset?'重置成功，请用新账号密码登录':'注册成功，请直接登录';}catch(e){q('#lmsg').textContent=e.message;}}
 async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});location.reload();}
 
 async function addSource(kind='sui'){
