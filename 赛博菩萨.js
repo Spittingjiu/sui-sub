@@ -389,9 +389,21 @@ async function suiRequest(source, path, options = {}) {
   if (!base) throw new Error('source panel_url empty');
   const headers = { 'accept': 'application/json', 'x-panel-token': String(source?.panel_token || '') };
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const resp = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (!resp.ok) throw new Error(`${path} HTTP ${resp.status}`);
-  return await resp.json().catch(() => ({}));
+
+  let resp;
+  try {
+    resp = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) {
+    throw new Error(`${path} network error: ${String(e?.message || e)}`);
+  }
+
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`${path} HTTP ${resp.status}: ${String(text || '').slice(0, 180)}`);
+  if (!text) return {};
+  try { return JSON.parse(text); }
+  catch {
+    throw new Error(`${path} non-json response: ${String(text).slice(0, 180)}`);
+  }
 }
 
 async function suiRequestTry(source, paths = [], options = {}) {
@@ -415,47 +427,63 @@ function normalizeInbounds(obj) {
 }
 
 async function listSuiInbounds(path, env) {
-  const m = path.match(/^\/api\/sui\/(\d+)\/inbounds$/);
-  const sourceId = Number(m?.[1] || 0);
-  const source = await getSourceById(env, sourceId);
-  if (!source) return json({ ok: false, error: 'source not found' }, 404);
-  if (String(source.source_type || 'sui_api') !== 'sui_api') return json({ ok: false, error: 'source is not sui_api' }, 400);
-  const j = await suiRequestTry(source, ['/api/inbounds', '/api/panel/inbounds', '/api/system/inbounds']);
-  return json({ ok: true, inbounds: normalizeInbounds(j) });
+  try {
+    const m = path.match(/^\/api\/sui\/(\d+)\/inbounds$/);
+    const sourceId = Number(m?.[1] || 0);
+    const source = await getSourceById(env, sourceId);
+    if (!source) return json({ ok: false, error: 'source not found' }, 404);
+    if (String(source.source_type || 'sui_api') !== 'sui_api') return json({ ok: false, error: 'source is not sui_api' }, 400);
+    const j = await suiRequestTry(source, ['/api/inbounds', '/api/panel/inbounds', '/api/system/inbounds']);
+    return json({ ok: true, inbounds: normalizeInbounds(j) });
+  } catch (e) {
+    return json({ ok: false, error: `SUI inbounds load failed: ${String(e?.message || e)}` }, 500);
+  }
 }
 
 async function quickCreateSuiReality(path, request, env) {
-  const m = path.match(/^\/api\/sui\/(\d+)\/reality-quick$/);
-  const sourceId = Number(m?.[1] || 0);
-  const source = await getSourceById(env, sourceId);
-  if (!source) return json({ ok: false, error: 'source not found' }, 404);
-  const body = await safeJson(request);
-  const remark = String(body?.remark || '').trim() || `quick-${Date.now()}`;
-  await suiRequestTry(source, ['/api/inbounds/reality-quick', '/api/inbounds/quick-reality', '/api/panel/inbounds/reality-quick'], { method: 'POST', body: { remark } });
-  return json({ ok: true });
+  try {
+    const m = path.match(/^\/api\/sui\/(\d+)\/reality-quick$/);
+    const sourceId = Number(m?.[1] || 0);
+    const source = await getSourceById(env, sourceId);
+    if (!source) return json({ ok: false, error: 'source not found' }, 404);
+    const body = await safeJson(request);
+    const remark = String(body?.remark || '').trim() || `quick-${Date.now()}`;
+    await suiRequestTry(source, ['/api/inbounds/reality-quick', '/api/inbounds/quick-reality', '/api/panel/inbounds/reality-quick'], { method: 'POST', body: { remark } });
+    return json({ ok: true });
+  } catch (e) {
+    return json({ ok: false, error: `SUI reality create failed: ${String(e?.message || e)}` }, 500);
+  }
 }
 
 async function renameSuiInbound(path, request, env) {
-  const m = path.match(/^\/api\/sui\/(\d+)\/inbounds\/(\d+)\/rename$/);
-  const sourceId = Number(m?.[1] || 0);
-  const inboundId = Number(m?.[2] || 0);
-  const source = await getSourceById(env, sourceId);
-  if (!source) return json({ ok: false, error: 'source not found' }, 404);
-  const body = await safeJson(request);
-  const remark = String(body?.remark || '').trim();
-  if (!remark) return json({ ok: false, error: 'remark 必填' }, 400);
-  await suiRequestTry(source, [`/api/inbounds/${inboundId}/remark`, `/api/inbounds/${inboundId}/rename`, `/api/panel/inbounds/${inboundId}/remark`], { method: 'PUT', body: { remark } });
-  return json({ ok: true });
+  try {
+    const m = path.match(/^\/api\/sui\/(\d+)\/inbounds\/(\d+)\/rename$/);
+    const sourceId = Number(m?.[1] || 0);
+    const inboundId = Number(m?.[2] || 0);
+    const source = await getSourceById(env, sourceId);
+    if (!source) return json({ ok: false, error: 'source not found' }, 404);
+    const body = await safeJson(request);
+    const remark = String(body?.remark || '').trim();
+    if (!remark) return json({ ok: false, error: 'remark 必填' }, 400);
+    await suiRequestTry(source, [`/api/inbounds/${inboundId}/remark`, `/api/inbounds/${inboundId}/rename`, `/api/panel/inbounds/${inboundId}/remark`], { method: 'PUT', body: { remark } });
+    return json({ ok: true });
+  } catch (e) {
+    return json({ ok: false, error: `SUI inbound rename failed: ${String(e?.message || e)}` }, 500);
+  }
 }
 
 async function deleteSuiInbound(path, env) {
-  const m = path.match(/^\/api\/sui\/(\d+)\/inbounds\/(\d+)$/);
-  const sourceId = Number(m?.[1] || 0);
-  const inboundId = Number(m?.[2] || 0);
-  const source = await getSourceById(env, sourceId);
-  if (!source) return json({ ok: false, error: 'source not found' }, 404);
-  await suiRequestTry(source, [`/api/inbounds/${inboundId}`, `/api/panel/inbounds/${inboundId}`], { method: 'DELETE' });
-  return json({ ok: true });
+  try {
+    const m = path.match(/^\/api\/sui\/(\d+)\/inbounds\/(\d+)$/);
+    const sourceId = Number(m?.[1] || 0);
+    const inboundId = Number(m?.[2] || 0);
+    const source = await getSourceById(env, sourceId);
+    if (!source) return json({ ok: false, error: 'source not found' }, 404);
+    await suiRequestTry(source, [`/api/inbounds/${inboundId}`, `/api/panel/inbounds/${inboundId}`], { method: 'DELETE' });
+    return json({ ok: true });
+  } catch (e) {
+    return json({ ok: false, error: `SUI inbound delete failed: ${String(e?.message || e)}` }, 500);
+  }
 }
 
 async function updateSubscription(path, request, env) {
@@ -523,7 +551,33 @@ async function runConnectivityNow(env, ctx) {
   return json({ ok: true, queued: true, connectivity_status: await getConnectivityStatus(env) });
 }
 
+let __bootEnsured = false;
+async function ensureRuntimeSchema(env) {
+  if (__bootEnsured) return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS admin_settings (
+    id INTEGER PRIMARY KEY CHECK (id=1),
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    auto_connectivity_ms INTEGER NOT NULL DEFAULT 600000,
+    auto_connectivity_limit INTEGER NOT NULL DEFAULT 60,
+    updated_at TEXT NOT NULL
+  );`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS subscription_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL,
+    subscription_id INTEGER,
+    subscription_name TEXT,
+    route_type TEXT NOT NULL,
+    client_ip TEXT,
+    user_agent TEXT,
+    device_hint TEXT,
+    created_at TEXT NOT NULL
+  );`).run();
+  __bootEnsured = true;
+}
+
 async function getAdminSettings(env) {
+  await ensureRuntimeSchema(env);
   return await env.DB.prepare('SELECT * FROM admin_settings WHERE id=1').first();
 }
 
