@@ -851,20 +851,37 @@ function toYamlList(items = []) {
   return (Array.isArray(items) ? items : []).map(x => `  - "${escYaml(x)}"`).join('\n');
 }
 
+function parseB64Loose(s=''){
+  const t=String(s||'').replace(/-/g,'+').replace(/_/g,'/');
+  const pad=t.length%4===0?'':'='.repeat(4-(t.length%4));
+  try{return atob(t+pad);}catch{return '';}
+}
+
 function parseLinkToProxyObj(raw = '', idx = 1) {
   const link = String(raw || '').trim();
   const name = parseNodeNameFromLink(link, idx);
   try {
     if (link.startsWith('ss://')) {
-      const u = new URL(link);
-      return { name, type: 'ss', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, cipher: 'aes-128-gcm', password: 'password' };
+      const noScheme = link.slice(5).split('#')[0];
+      const [authPart, hostPart] = noScheme.includes('@') ? noScheme.split('@') : [parseB64Loose(noScheme.split('?')[0]), noScheme.split('?')[0]];
+      let cipher = 'aes-128-gcm', password = 'password', host='0.0.0.0', port=443;
+      if (authPart && authPart.includes(':')) {
+        const a = authPart.includes('@') ? authPart.split('@')[0] : authPart;
+        const [c,p]=a.split(':'); cipher=c||cipher; password=p||password;
+      }
+      const hp = hostPart.includes('@') ? hostPart.split('@').pop() : hostPart;
+      const hp2 = hp.split('?')[0];
+      if (hp2.includes(':')) { const i = hp2.lastIndexOf(':'); host = hp2.slice(0,i) || host; port = Number(hp2.slice(i+1) || port); }
+      return { name, type: 'ss', server: host, port, udp: true, cipher, password };
     }
     if (link.startsWith('trojan://')) {
       const u = new URL(link);
       return { name, type: 'trojan', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined };
     }
     if (link.startsWith('vmess://')) {
-      return { name, type: 'vmess', server: '0.0.0.0', port: 443, udp: true, uuid: '00000000-0000-0000-0000-000000000000', alterId: 0, cipher: 'auto' };
+      const payload = parseB64Loose(link.slice('vmess://'.length));
+      const obj = JSON.parse(payload || '{}');
+      return { name, type: 'vmess', server: obj.add || '0.0.0.0', port: Number(obj.port || 443), udp: true, uuid: obj.id || '00000000-0000-0000-0000-000000000000', alterId: Number(obj.aid || 0), cipher: obj.scy || 'auto', network: obj.net || undefined, tls: String(obj.tls||'').toLowerCase()==='tls', servername: obj.sni || obj.host || undefined };
     }
     if (link.startsWith('vless://')) {
       const u = new URL(link);
