@@ -37,13 +37,24 @@ export default {
         return withCors(new Response(buildHtml(), { headers: { 'content-type': 'text/html; charset=utf-8' } }));
       }
 
+      if (path === '/api/auth/status' && method === 'GET') {
+        const adm = await getAdminSettings(env);
+        return json({ ok: true, need_register: !adm });
+      }
+
+      // 注册（仅首次可用）
+      if (path === '/api/auth/register' && method === 'POST') {
+        return registerAdmin(request, env);
+      }
+
       // 登录
       if (path === '/api/auth/login' && method === 'POST') {
         const body = await safeJson(request);
         const username = String(body?.username || '').trim();
         const password = String(body?.password || '');
         const adm = await getAdminSettings(env);
-        if (!username || !password || username !== String(adm?.username || 'admin') || password !== String(adm?.password || String(env.ADMIN_PASSWORD || 'admin123'))) {
+        if (!adm) return json({ ok: false, error: '未注册，请先注册管理员账号' }, 400);
+        if (!username || !password || username !== String(adm?.username || '') || password !== String(adm?.password || '')) {
           return json({ ok: false, error: '用户名或密码错误' }, 401);
         }
         const token = await signSession({ user: username, exp: Date.now() + 7 * 24 * 3600 * 1000 }, env);
@@ -509,11 +520,20 @@ async function runConnectivityNow(env, ctx) {
 }
 
 async function getAdminSettings(env) {
-  const row = await env.DB.prepare('SELECT * FROM admin_settings WHERE id=1').first();
-  if (row) return row;
-  await env.DB.prepare('INSERT INTO admin_settings(id,username,password,auto_connectivity_ms,auto_connectivity_limit,updated_at) VALUES(1,?,?,600000,60,?)')
-    .bind('admin', String(env.ADMIN_PASSWORD || 'admin123'), now()).run();
   return await env.DB.prepare('SELECT * FROM admin_settings WHERE id=1').first();
+}
+
+async function registerAdmin(request, env) {
+  const exists = await getAdminSettings(env);
+  if (exists) return json({ ok: false, error: '管理员已存在，不可重复注册' }, 409);
+  const body = await safeJson(request);
+  const username = String(body?.username || '').trim();
+  const password = String(body?.password || '');
+  if (!username) return json({ ok: false, error: 'username 必填' }, 400);
+  if (password.length < 6) return json({ ok: false, error: 'password 至少6位' }, 400);
+  await env.DB.prepare('INSERT INTO admin_settings(id,username,password,auto_connectivity_ms,auto_connectivity_limit,updated_at) VALUES(1,?,?,600000,60,?)')
+    .bind(username, password, now()).run();
+  return json({ ok: true, username });
 }
 
 async function getConnectivityStatus(env) {
@@ -533,9 +553,10 @@ async function getConnectivityStatus(env) {
 
 async function getAdminUser(env) {
   const adm = await getAdminSettings(env);
+  if (!adm) return json({ ok: false, need_register: true }, 404);
   return json({
     ok: true,
-    username: String(adm?.username || 'admin'),
+    username: String(adm?.username || ''),
     auto_connectivity_ms: Number(adm?.auto_connectivity_ms || 600000),
     auto_connectivity_limit: Number(adm?.auto_connectivity_limit || 60),
     connectivity_status: await getConnectivityStatus(env)
@@ -550,7 +571,8 @@ async function saveAdminUser(request, env) {
   const autoLimit = Math.max(1, Math.min(200, Number(body?.auto_connectivity_limit || 60)));
   if (!username) return json({ ok: false, error: 'username 必填' }, 400);
   const old = await getAdminSettings(env);
-  const nextPass = password ? password : String(old?.password || String(env.ADMIN_PASSWORD || 'admin123'));
+  if (!old) return json({ ok: false, error: '未注册管理员，请先注册' }, 400);
+  const nextPass = password ? password : String(old?.password || '');
   await env.DB.prepare('UPDATE admin_settings SET username=?, password=?, auto_connectivity_ms=?, auto_connectivity_limit=?, updated_at=? WHERE id=1')
     .bind(username, nextPass, autoMs, autoLimit, now()).run();
   return json({ ok: true, connectivity_status: await getConnectivityStatus(env) });
@@ -633,12 +655,6 @@ async function initSchema(env) {
   for (const s of sqlList) {
     await env.DB.prepare(s).run();
   }
-
-  await env.DB.prepare(`
-    INSERT INTO admin_settings(id,username,password,auto_connectivity_ms,auto_connectivity_limit,updated_at)
-    VALUES(1,?,?,600000,60,?)
-    ON CONFLICT(id) DO NOTHING
-  `).bind('admin', String(env.ADMIN_PASSWORD || 'admin123'), now()).run();
 
   return { message: 'schema initialized', tables: ['sources', 'nodes', 'subscriptions', 'node_connectivity', 'admin_settings', 'subscription_logs'] };
 }
@@ -976,6 +992,7 @@ function buildHtml() {
     <input id="lu" placeholder="用户名" autocomplete="username"/>
     <input id="lp" type="password" placeholder="密码" autocomplete="current-password" style="margin-top:8px"/>
     <button onclick="login()" style="margin-top:8px;width:100%">进入控制台</button>
+    <button id="registerBtn" onclick="registerAdmin()" style="margin-top:8px;width:100%" class="hide">首次注册管理员</button>
     <div id="lmsg" class="muted" style="margin-top:8px"></div>
   </div>
 
@@ -1190,8 +1207,19 @@ function switchTab(tab){
   if(tab==='sui') loadSuiNodes(); if(tab==='user') loadAdminUser();
 }
 
-async function checkAuth(){const r=await fetch('/api/auth/me'); if(r.status===200){q('#loginCard').classList.add('hide');q('#app').classList.remove('hide');setAuthMode(false);init();} else {q('#loginCard').classList.remove('hide');q('#app').classList.add('hide');setAuthMode(true);}}
+async function checkAuth(){
+  const me=await fetch('/api/auth/me');
+  if(me.status===200){q('#loginCard').classList.add('hide');q('#app').classList.remove('hide');setAuthMode(false);init();return;}
+  q('#loginCard').classList.remove('hide');q('#app').classList.add('hide');setAuthMode(true);
+  try{
+    const st=await api('/api/auth/status');
+    const need=!!st.need_register;
+    q('#registerBtn')?.classList.toggle('hide',!need);
+    q('#lmsg').textContent=need?'首次使用请先注册管理员账号（用户名+密码）':'';
+  }catch(_e){}
+}
 async function login(){try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent='';checkAuth();}catch(e){q('#lmsg').textContent=e.message;}}
+async function registerAdmin(){try{await api('/api/auth/register',{method:'POST',body:JSON.stringify({username:q('#lu').value.trim(),password:q('#lp').value})});q('#lmsg').textContent='注册成功，请直接登录';q('#registerBtn')?.classList.add('hide');}catch(e){q('#lmsg').textContent=e.message;}}
 async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});location.reload();}
 
 async function addSource(kind='sui'){
