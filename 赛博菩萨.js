@@ -918,7 +918,8 @@ function parseLinkToProxyObj(raw = '', idx = 1) {
         network: net, tls: String(obj.tls||'').toLowerCase()==='tls', servername: obj.sni || obj.host || undefined,
         'skip-cert-verify': String(obj.allowInsecure||'')==='1' || undefined,
         'client-fingerprint': obj.fp || undefined,
-        'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(obj.path||'/')}, headers: {Host: ${JSON.stringify(obj.host||'')}}}` : undefined
+        'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(obj.path||'/')}, headers: {Host: ${JSON.stringify(obj.host||'')}}}` : undefined,
+        'grpc-opts': net==='grpc' ? `__RAW__{grpc-service-name: ${JSON.stringify(obj.path||obj.serviceName||obj.service||'')}}` : undefined
       };
     }
     if (link.startsWith('vless://')) {
@@ -936,7 +937,7 @@ function parseLinkToProxyObj(raw = '', idx = 1) {
         'packet-encoding': u.searchParams.get('packetEncoding') || u.searchParams.get('packet-encoding') || undefined,
         'udp-over-tcp': u.searchParams.get('uot') === '1' ? true : undefined,
         'reality-opts': sec === 'reality' ? `__RAW__{public-key: ${JSON.stringify(u.searchParams.get('pbk')||'')}, short-id: ${JSON.stringify(u.searchParams.get('sid')||'')}}` : undefined,
-        'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(u.searchParams.get('path')||'/')}, headers: {Host: ${JSON.stringify(u.searchParams.get('host')||u.searchParams.get('sni')||'')}}}` : undefined,
+        'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(u.searchParams.get('path')||'/')}, headers: {Host: ${JSON.stringify(u.searchParams.get('host')||u.searchParams.get('sni')||'')}}, max-early-data: ${Number(u.searchParams.get('ed')||0)}, early-data-header-name: ${JSON.stringify(u.searchParams.get('eh')||'Sec-WebSocket-Protocol')}}` : undefined,
         'grpc-opts': net==='grpc' ? `__RAW__{grpc-service-name: ${JSON.stringify(u.searchParams.get('serviceName')||u.searchParams.get('service')||'')}}` : undefined
       };
     }
