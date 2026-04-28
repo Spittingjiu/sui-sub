@@ -235,6 +235,18 @@ https://<你的worker域名>/init?key=<你的INIT_KEY>
 3. 订阅下发时会先触发该订阅的一轮连通性检测，再按结果下发。  
 4. Workers 环境不做原生 TCP 直连，连通性检测走上游 `sui_api` 链路测试接口。
 
+### 6.1 常见报错：`Cannot read properties of undefined (reading 'prepare')`
+
+这代表 Worker 没拿到 D1 绑定（`env.DB` 是空）。按下面修：
+
+1. Cloudflare → Worker → **Settings** → **Bindings**  
+2. 新增 **D1 database** 绑定，变量名必须写：`DB`  
+3. 选择你创建的 D1（如 `sui-sub-db`）  
+4. 保存并重新 Deploy  
+5. 再访问：`/init?key=<INIT_KEY>`
+
+如果绑定正确，接口不会再报 `prepare` undefined。
+
 ---
 
 ### 7) 可选：CLI 同步方案（仅备查）

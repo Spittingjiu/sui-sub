@@ -10,6 +10,11 @@ export default {
       const path = url.pathname;
       const method = request.method.toUpperCase();
 
+      const needDb = path.startsWith('/api/') || path.startsWith('/sub/') || path === '/init';
+      if (needDb && !hasD1(env)) {
+        return json({ ok: false, error: 'D1 binding missing: please bind D1 as variable name DB in Worker settings' }, 500);
+      }
+
       // CORS / 预检
       if (method === 'OPTIONS') return withCors(new Response(null, { status: 204 }));
 
@@ -425,6 +430,10 @@ function json(data, status = 200) {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' }
   }));
+}
+
+function hasD1(env) {
+  return !!(env && env.DB && typeof env.DB.prepare === 'function');
 }
 
 function withCors(resp) {
