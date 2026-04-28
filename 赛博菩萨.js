@@ -493,7 +493,7 @@ async function serveSubscription(path, request, env, { mode = 'base64' } = {}) {
 
   const plain = nodes.map(n => String(n.raw_link || '').trim()).filter(Boolean).join('\n');
   if (mode === 'clash') {
-    const yaml = buildClashYamlFromLinks(nodes.map(n => String(n.raw_link || '').trim()).filter(Boolean));
+    const yaml = await buildClashYamlFromLinks(nodes.map(n => String(n.raw_link || '').trim()).filter(Boolean), env);
     await recordSubscriptionLog(request, env, sub, 'clash-compat');
     return withCors(new Response(yaml, { headers: { 'content-type': 'text/yaml; charset=utf-8' } }));
   }
@@ -831,88 +831,31 @@ function parseNodeNameFromLink(link = '', idx = 1) {
   return `${(m?.[1] || 'node').toUpperCase()}-${idx}`;
 }
 
-function parseTypeFromLink(link = '') {
-  const m = String(link).match(/^(\w+):\/\//);
-  const t = String(m?.[1] || '').toLowerCase();
-  if (['vmess', 'vless', 'trojan', 'ss', 'hysteria2', 'hy2'].includes(t)) return t === 'hy2' ? 'hysteria2' : t;
-  return 'ss';
+function toYamlList(items = []) {
+  return (Array.isArray(items) ? items : []).map(x => `  - "${escYaml(x)}"`).join('\n');
 }
 
-function buildClashYamlFromLinks(links = []) {
+async function buildClashYamlFromLinks(links = [], env) {
   const list = (Array.isArray(links) ? links : []).filter(Boolean);
-  const proxies = list.map((link, i) => ({
-    name: parseNodeNameFromLink(link, i + 1),
-    type: parseTypeFromLink(link),
-    server: '0.0.0.0',
-    port: 443,
-    udp: true
-  }));
+  const names = list.map((link, i) => parseNodeNameFromLink(link, i + 1));
 
-  const proxyNames = proxies.map(p => `"${escYaml(p.name)}"`).join(', ');
-  const proxyLines = proxies.map(p => `  - { name: "${escYaml(p.name)}", type: ${p.type}, server: ${p.server}, port: ${p.port}, udp: ${p.udp ? 'true' : 'false'} }`).join('\n');
-  const select = proxyNames || 'DIRECT';
+  const templateUrl = String(env?.CLASH_TEMPLATE_URL || 'https://raw.githubusercontent.com/Spittingjiu/mihomo-generic-template/main/clash-template.yaml').trim();
+  const tplResp = await fetch(templateUrl, { headers: { 'accept': 'application/yaml,text/yaml,text/plain,*/*', 'cache-control': 'no-cache' } });
+  if (!tplResp.ok) throw new Error(`template fetch failed: HTTP ${tplResp.status}`);
+  let yaml = await tplResp.text();
 
-  return `mixed-port: 7890
-allow-lan: false
-mode: rule
-log-level: info
-ipv6: true
-dns:
-  enable: true
-  ipv6: true
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-    - 1.1.1.1
-proxies:
-${proxyLines || '  []'}
-proxy-groups:
-  - name: 节点选择
-    type: select
-    proxies: [${select}]
-  - name: AI分流
-    type: select
-    proxies: [节点选择, DIRECT]
-  - name: YouTube分流
-    type: select
-    proxies: [节点选择, DIRECT]
-  - name: Telegram分流
-    type: select
-    proxies: [节点选择, DIRECT]
-  - name: Google
-    type: select
-    proxies: [节点选择, DIRECT]
-  - name: Steam
-    type: select
-    proxies: [节点选择, DIRECT]
-rule-providers:
-  my_proxylist: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_proxylist.yaml, path: ./ruleset/custom/my_proxylist.yaml, interval: 86400 }
-  my_whitelist: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.yaml, path: ./ruleset/custom/my_whitelist.yaml, interval: 86400 }
-  reject: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Advertising/Advertising_Classical.yaml, path: ./ruleset/blackmatrix7/Advertising_Classical.yaml, interval: 86400 }
-  direct: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_Classical.yaml, path: ./ruleset/blackmatrix7/ChinaMax_Classical.yaml, interval: 86400 }
-  proxy: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Global/Global_Classical.yaml, path: ./ruleset/blackmatrix7/Global_Classical.yaml, interval: 86400 }
-  openai: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/OpenAI/OpenAI.yaml, path: ./ruleset/blackmatrix7/OpenAI.yaml, interval: 86400 }
-  anthropic: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Anthropic/Anthropic.yaml, path: ./ruleset/blackmatrix7/Anthropic.yaml, interval: 86400 }
-  youtube: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml, path: ./ruleset/blackmatrix7/YouTube.yaml, interval: 86400 }
-  telegram: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml, path: ./ruleset/blackmatrix7/Telegram.yaml, interval: 86400 }
-  google: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml, path: ./ruleset/blackmatrix7/Google.yaml, interval: 86400 }
-  steam: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Steam/Steam.yaml, path: ./ruleset/blackmatrix7/Steam.yaml, interval: 86400 }
-rules:
-  - RULE-SET,my_proxylist,节点选择
-  - RULE-SET,my_whitelist,DIRECT
-  - RULE-SET,reject,REJECT
-  - RULE-SET,openai,AI分流
-  - RULE-SET,anthropic,AI分流
-  - RULE-SET,youtube,YouTube分流
-  - RULE-SET,telegram,Telegram分流
-  - RULE-SET,google,Google
-  - RULE-SET,steam,Steam
-  - RULE-SET,proxy,节点选择
-  - RULE-SET,direct,DIRECT
-  - MATCH,节点选择
-`;
+  yaml = yaml.replace(/\r\n/g, '\n');
+
+  const manualBlock = `  - name: 手动选择\n    type: select\n    include-all: true\n    proxies:\n${toYamlList(names)}\n    exclude-filter: "^(?i:(DIRECT|REJECT|PASS))$"`;
+  yaml = yaml.replace(/(^\s*-\s*name:\s*手动选择[\s\S]*?exclude-filter:\s*"\^\(\?i:\(DIRECT\|REJECT\|PASS\)\)\$"\s*)/m, manualBlock + '\n');
+
+  const autoBlock = `  - name: 自动选择\n    type: url-test\n    include-all: true\n    proxies:\n${toYamlList(names)}\n    url: https://cp.cloudflare.com/generate_204\n    interval: 600\n    tolerance: 100\n    exclude-filter: "^(?i:(DIRECT|REJECT|PASS))$"`;
+  yaml = yaml.replace(/(^\s*-\s*name:\s*自动选择[\s\S]*?exclude-filter:\s*"\^\(\?i:\(DIRECT\|REJECT\|PASS\)\)\$"\s*)/m, autoBlock + '\n');
+
+  const proxiesBlock = ['proxies:', ...list.map((raw, i) => `  - { name: "${escYaml(names[i])}", type: ss, server: 0.0.0.0, port: 443, udp: true }`)].join('\n');
+  yaml = yaml.replace(/^proxies:[\s\S]*?\nproxy-groups:/m, `${proxiesBlock}\nproxy-groups:`);
+
+  return yaml;
 }
 
 function jsonParse(s, fallback) {
