@@ -124,6 +124,12 @@ export default {
       if (/^\/api\/sub\/[A-Za-z0-9_-]+\/plain$/.test(path) && method === 'GET') {
         return serveSubscription(path.replace('/api/sub/', '/sub/').replace('/plain', ''), request, env, { mode: 'plain' });
       }
+      if (/^\/sub\/[A-Za-z0-9_-]+\/clash$/.test(path) && method === 'GET') {
+        return serveSubscription(path.replace('/clash', ''), request, env, { mode: 'clash' });
+      }
+      if (/^\/api\/sub\/[A-Za-z0-9_-]+\/clash$/.test(path) && method === 'GET') {
+        return serveSubscription(path.replace('/api/sub/', '/sub/').replace('/clash', ''), request, env, { mode: 'clash' });
+      }
 
       if (path === '/api/admin/user' && method === 'GET') return getAdminUser(env);
       if (path === '/api/admin/user' && method === 'POST') return saveAdminUser(request, env);
@@ -372,6 +378,18 @@ async function suiRequest(source, path, { method = 'GET', body } = {}) {
   return await resp.json().catch(() => ({}));
 }
 
+async function suiRequestTry(source, paths = [], options = {}) {
+  let lastErr;
+  for (const p of paths) {
+    try {
+      return await suiRequest(source, p, options);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('sui request failed');
+}
+
 function normalizeInbounds(obj) {
   if (Array.isArray(obj)) return obj;
   if (Array.isArray(obj?.inbounds)) return obj.inbounds;
@@ -386,7 +404,7 @@ async function listSuiInbounds(path, env) {
   const source = await getSourceById(env, sourceId);
   if (!source) return json({ ok: false, error: 'source not found' }, 404);
   if (String(source.source_type || 'sui_api') !== 'sui_api') return json({ ok: false, error: 'source is not sui_api' }, 400);
-  const j = await suiRequest(source, '/api/inbounds');
+  const j = await suiRequestTry(source, ['/api/inbounds', '/api/panel/inbounds', '/api/system/inbounds']);
   return json({ ok: true, inbounds: normalizeInbounds(j) });
 }
 
@@ -397,12 +415,7 @@ async function quickCreateSuiReality(path, request, env) {
   if (!source) return json({ ok: false, error: 'source not found' }, 404);
   const body = await safeJson(request);
   const remark = String(body?.remark || '').trim() || `quick-${Date.now()}`;
-  try {
-    await suiRequest(source, '/api/inbounds/reality-quick', { method: 'POST', body: { remark } });
-  } catch {
-    // 兼容某些面板路径
-    await suiRequest(source, '/api/inbounds/quick-reality', { method: 'POST', body: { remark } });
-  }
+  await suiRequestTry(source, ['/api/inbounds/reality-quick', '/api/inbounds/quick-reality', '/api/panel/inbounds/reality-quick'], { method: 'POST', body: { remark } });
   return json({ ok: true });
 }
 
@@ -415,7 +428,7 @@ async function renameSuiInbound(path, request, env) {
   const body = await safeJson(request);
   const remark = String(body?.remark || '').trim();
   if (!remark) return json({ ok: false, error: 'remark 必填' }, 400);
-  await suiRequest(source, `/api/inbounds/${inboundId}/remark`, { method: 'PUT', body: { remark } });
+  await suiRequestTry(source, [`/api/inbounds/${inboundId}/remark`, `/api/inbounds/${inboundId}/rename`, `/api/panel/inbounds/${inboundId}/remark`], { method: 'PUT', body: { remark } });
   return json({ ok: true });
 }
 
@@ -425,7 +438,7 @@ async function deleteSuiInbound(path, env) {
   const inboundId = Number(m?.[2] || 0);
   const source = await getSourceById(env, sourceId);
   if (!source) return json({ ok: false, error: 'source not found' }, 404);
-  await suiRequest(source, `/api/inbounds/${inboundId}`, { method: 'DELETE' });
+  await suiRequestTry(source, [`/api/inbounds/${inboundId}`, `/api/panel/inbounds/${inboundId}`], { method: 'DELETE' });
   return json({ ok: true });
 }
 
@@ -478,6 +491,11 @@ async function serveSubscription(path, request, env, { mode = 'base64' } = {}) {
   }
 
   const plain = nodes.map(n => String(n.raw_link || '').trim()).filter(Boolean).join('\n');
+  if (mode === 'clash') {
+    const yaml = buildClashYamlFromLinks(nodes.map(n => String(n.raw_link || '').trim()).filter(Boolean));
+    await recordSubscriptionLog(request, env, sub, 'clash-compat');
+    return withCors(new Response(yaml, { headers: { 'content-type': 'text/yaml; charset=utf-8' } }));
+  }
   await recordSubscriptionLog(request, env, sub, mode === 'plain' ? 'plain' : 'plain-base64');
   if (mode === 'plain') return withCors(new Response(plain, { headers: { 'content-type': 'text/plain; charset=utf-8' } }));
   const encoded = btoa(unescape(encodeURIComponent(plain)));
@@ -793,6 +811,46 @@ function pickCookie(cookie, key) {
 
 function arrNum(v) {
   return Array.isArray(v) ? v.map(Number).filter(Boolean) : [];
+}
+
+function decodeHashName(raw = '') {
+  const i = String(raw).indexOf('#');
+  if (i < 0) return '';
+  try { return decodeURIComponent(String(raw).slice(i + 1)).trim(); } catch { return String(raw).slice(i + 1).trim(); }
+}
+
+function escYaml(v = '') {
+  return String(v || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function parseNodeNameFromLink(link = '', idx = 1) {
+  const h = decodeHashName(link);
+  if (h) return h;
+  const m = String(link).match(/^(\w+):\/\//);
+  return `${(m?.[1] || 'node').toUpperCase()}-${idx}`;
+}
+
+function parseTypeFromLink(link = '') {
+  const m = String(link).match(/^(\w+):\/\//);
+  const t = String(m?.[1] || '').toLowerCase();
+  if (['vmess', 'vless', 'trojan', 'ss', 'hysteria2', 'hy2'].includes(t)) return t === 'hy2' ? 'hysteria2' : t;
+  return 'ss';
+}
+
+function buildClashYamlFromLinks(links = []) {
+  const list = (Array.isArray(links) ? links : []).filter(Boolean);
+  const proxies = list.map((link, i) => ({
+    name: parseNodeNameFromLink(link, i + 1),
+    type: parseTypeFromLink(link),
+    server: '0.0.0.0',
+    port: 443,
+    udp: true
+  }));
+
+  const proxyNames = proxies.map(p => `"${escYaml(p.name)}"`).join(', ');
+  const proxyLines = proxies.map(p => `  - { name: "${escYaml(p.name)}", type: ${p.type}, server: ${p.server}, port: ${p.port}, udp: ${p.udp ? 'true' : 'false'} }`).join('\n');
+
+  return `mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\nproxies:\n${proxyLines || '  []'}\nproxy-groups:\n  - name: 节点选择\n    type: select\n    proxies: [${proxyNames || 'DIRECT'}]\nrules:\n  - MATCH,节点选择\n`;
 }
 
 function jsonParse(s, fallback) {
