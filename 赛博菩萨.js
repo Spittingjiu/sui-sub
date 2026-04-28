@@ -876,33 +876,71 @@ function parseLinkToProxyObj(raw = '', idx = 1) {
     }
     if (link.startsWith('trojan://')) {
       const u = new URL(link);
-      return { name, type: 'trojan', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined };
+      const sec = String(u.searchParams.get('security') || '').toLowerCase();
+      return {
+        name, type: 'trojan', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true,
+        password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined,
+        'skip-cert-verify': u.searchParams.get('insecure') === '1' || u.searchParams.get('allowInsecure') === '1' || undefined,
+        alpn: u.searchParams.get('alpn') || undefined,
+        'client-fingerprint': u.searchParams.get('fp') || undefined,
+        network: u.searchParams.get('type') || undefined,
+        tls: sec === 'tls' || sec === 'reality' || undefined
+      };
     }
     if (link.startsWith('vmess://')) {
       const payload = parseB64Loose(link.slice('vmess://'.length));
       const obj = JSON.parse(payload || '{}');
-      return { name, type: 'vmess', server: obj.add || '0.0.0.0', port: Number(obj.port || 443), udp: true, uuid: obj.id || '00000000-0000-0000-0000-000000000000', alterId: Number(obj.aid || 0), cipher: obj.scy || 'auto', network: obj.net || undefined, tls: String(obj.tls||'').toLowerCase()==='tls', servername: obj.sni || obj.host || undefined };
+      const net = obj.net || undefined;
+      return {
+        name, type: 'vmess', server: obj.add || '0.0.0.0', port: Number(obj.port || 443), udp: true,
+        uuid: obj.id || '00000000-0000-0000-0000-000000000000', alterId: Number(obj.aid || 0), cipher: obj.scy || 'auto',
+        network: net, tls: String(obj.tls||'').toLowerCase()==='tls', servername: obj.sni || obj.host || undefined,
+        'skip-cert-verify': String(obj.allowInsecure||'')==='1' || undefined,
+        'client-fingerprint': obj.fp || undefined,
+        'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(obj.path||'/')}, headers: {Host: ${JSON.stringify(obj.host||'')}}}` : undefined
+      };
     }
     if (link.startsWith('vless://')) {
       const u = new URL(link);
-      return { name, type: 'vless', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, uuid: decodeURIComponent(u.username || ''), network: u.searchParams.get('type') || 'tcp', tls: (u.searchParams.get('security') || '').toLowerCase() === 'tls', servername: u.searchParams.get('sni') || undefined };
+      const net = u.searchParams.get('type') || 'tcp';
+      const sec = (u.searchParams.get('security') || '').toLowerCase();
+      return {
+        name, type: 'vless', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true,
+        uuid: decodeURIComponent(u.username || ''), network: net,
+        tls: sec === 'tls' || sec === 'reality', servername: u.searchParams.get('sni') || undefined,
+        flow: u.searchParams.get('flow') || undefined,
+        alpn: u.searchParams.get('alpn') || undefined,
+        'client-fingerprint': u.searchParams.get('fp') || undefined,
+        'skip-cert-verify': u.searchParams.get('insecure') === '1' || u.searchParams.get('allowInsecure') === '1' || undefined,
+        'reality-opts': sec === 'reality' ? `__RAW__{public-key: ${JSON.stringify(u.searchParams.get('pbk')||'')}, short-id: ${JSON.stringify(u.searchParams.get('sid')||'')}}` : undefined,
+        'ws-opts': net==='ws' ? `__RAW__{path: ${JSON.stringify(u.searchParams.get('path')||'/')}, headers: {Host: ${JSON.stringify(u.searchParams.get('host')||u.searchParams.get('sni')||'')}}}` : undefined,
+        'grpc-opts': net==='grpc' ? `__RAW__{grpc-service-name: ${JSON.stringify(u.searchParams.get('serviceName')||u.searchParams.get('service')||'')}}` : undefined
+      };
     }
     if (link.startsWith('hysteria2://') || link.startsWith('hy2://')) {
       const u = new URL(link.replace('hy2://', 'hysteria2://'));
-      return { name, type: 'hysteria2', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined };
+      return {
+        name, type: 'hysteria2', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true,
+        password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined,
+        alpn: u.searchParams.get('alpn') || undefined,
+        'skip-cert-verify': u.searchParams.get('insecure') === '1' || u.searchParams.get('allowInsecure') === '1' || undefined,
+        obfs: u.searchParams.get('obfs') || undefined,
+        'obfs-password': u.searchParams.get('obfs-password') || undefined
+      };
     }
   } catch {}
   return { name, type: 'ss', server: '0.0.0.0', port: 443, udp: true, cipher: 'aes-128-gcm', password: 'password' };
 }
 
 function proxyObjToInlineYaml(p) {
-  const order = ['name', 'type', 'server', 'port', 'udp', 'uuid', 'alterId', 'cipher', 'password', 'network', 'tls', 'servername', 'sni'];
+  const order = ['name', 'type', 'server', 'port', 'udp', 'uuid', 'alterId', 'cipher', 'password', 'network', 'tls', 'servername', 'sni', 'flow', 'alpn', 'client-fingerprint', 'skip-cert-verify', 'reality-opts', 'ws-opts', 'grpc-opts', 'obfs', 'obfs-password'];
   const arr = [];
   for (const k of order) {
     if (p[k] === undefined || p[k] === null || p[k] === '') continue;
     const v = p[k];
     if (typeof v === 'number') arr.push(`${k}: ${v}`);
     else if (typeof v === 'boolean') arr.push(`${k}: ${v ? 'true' : 'false'}`);
+    else if (typeof v === 'string' && v.startsWith('__RAW__')) arr.push(`${k}: ${v.slice('__RAW__'.length)}`);
     else arr.push(`${k}: "${escYaml(String(v))}"`);
   }
   return `  - { ${arr.join(', ')} }`;
