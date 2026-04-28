@@ -72,10 +72,11 @@ export default {
         }));
       }
 
-      // 以下 API 统一鉴权
+      // 以下 API 统一鉴权（订阅下发路由允许匿名）
+      const isAnonymousSubRoute = path.startsWith('/sub/') || /^\/api\/sub\/[A-Za-z0-9_-]+\/(plain|clash)$/.test(path);
       if (path.startsWith('/api/') || path.startsWith('/sub/')) {
-        const sess = await requireSession(request, env, path.startsWith('/sub/')); // sub 路由可匿名拉取
-        if (!sess && !path.startsWith('/sub/')) return json({ ok: false, error: 'unauthorized' }, 401);
+        const sess = await requireSession(request, env, isAnonymousSubRoute);
+        if (!sess && !isAnonymousSubRoute) return json({ ok: false, error: 'unauthorized' }, 401);
       }
 
       // CSRF 头校验（非 GET）
@@ -849,8 +850,69 @@ function buildClashYamlFromLinks(links = []) {
 
   const proxyNames = proxies.map(p => `"${escYaml(p.name)}"`).join(', ');
   const proxyLines = proxies.map(p => `  - { name: "${escYaml(p.name)}", type: ${p.type}, server: ${p.server}, port: ${p.port}, udp: ${p.udp ? 'true' : 'false'} }`).join('\n');
+  const select = proxyNames || 'DIRECT';
 
-  return `mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\nproxies:\n${proxyLines || '  []'}\nproxy-groups:\n  - name: 节点选择\n    type: select\n    proxies: [${proxyNames || 'DIRECT'}]\nrules:\n  - MATCH,节点选择\n`;
+  return `mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: true
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 1.1.1.1
+proxies:
+${proxyLines || '  []'}
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies: [${select}]
+  - name: AI分流
+    type: select
+    proxies: [节点选择, DIRECT]
+  - name: YouTube分流
+    type: select
+    proxies: [节点选择, DIRECT]
+  - name: Telegram分流
+    type: select
+    proxies: [节点选择, DIRECT]
+  - name: Google
+    type: select
+    proxies: [节点选择, DIRECT]
+  - name: Steam
+    type: select
+    proxies: [节点选择, DIRECT]
+rule-providers:
+  my_proxylist: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_proxylist.yaml, path: ./ruleset/custom/my_proxylist.yaml, interval: 86400 }
+  my_whitelist: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/Spittingjiu/mihomo-custom-rules/main/my_whitelist.yaml, path: ./ruleset/custom/my_whitelist.yaml, interval: 86400 }
+  reject: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Advertising/Advertising_Classical.yaml, path: ./ruleset/blackmatrix7/Advertising_Classical.yaml, interval: 86400 }
+  direct: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_Classical.yaml, path: ./ruleset/blackmatrix7/ChinaMax_Classical.yaml, interval: 86400 }
+  proxy: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Global/Global_Classical.yaml, path: ./ruleset/blackmatrix7/Global_Classical.yaml, interval: 86400 }
+  openai: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/OpenAI/OpenAI.yaml, path: ./ruleset/blackmatrix7/OpenAI.yaml, interval: 86400 }
+  anthropic: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Anthropic/Anthropic.yaml, path: ./ruleset/blackmatrix7/Anthropic.yaml, interval: 86400 }
+  youtube: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/YouTube/YouTube.yaml, path: ./ruleset/blackmatrix7/YouTube.yaml, interval: 86400 }
+  telegram: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Telegram/Telegram.yaml, path: ./ruleset/blackmatrix7/Telegram.yaml, interval: 86400 }
+  google: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Google/Google.yaml, path: ./ruleset/blackmatrix7/Google.yaml, interval: 86400 }
+  steam: { type: http, behavior: classical, format: yaml, url: https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Steam/Steam.yaml, path: ./ruleset/blackmatrix7/Steam.yaml, interval: 86400 }
+rules:
+  - RULE-SET,my_proxylist,节点选择
+  - RULE-SET,my_whitelist,DIRECT
+  - RULE-SET,reject,REJECT
+  - RULE-SET,openai,AI分流
+  - RULE-SET,anthropic,AI分流
+  - RULE-SET,youtube,YouTube分流
+  - RULE-SET,telegram,Telegram分流
+  - RULE-SET,google,Google
+  - RULE-SET,steam,Steam
+  - RULE-SET,proxy,节点选择
+  - RULE-SET,direct,DIRECT
+  - MATCH,节点选择
+`;
 }
 
 function jsonParse(s, fallback) {
