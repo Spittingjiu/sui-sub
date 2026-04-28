@@ -606,7 +606,30 @@ async function clashSelfTest(env) {
     hasSS: /type:\s*"ss"|type:\s*ss/.test(y),
     hasVMess: /type:\s*"vmess"|type:\s*vmess/.test(y)
   };
-  return json({ ok: true, checks, length: y.length, preview: y.slice(0, 600) });
+
+  const realRows = (await env.DB.prepare(`
+    SELECT raw_link FROM nodes n
+    LEFT JOIN sources s ON s.id=n.source_id
+    WHERE COALESCE(n.enabled,1)=1 AND COALESCE(s.enabled,1)=1
+    ORDER BY n.id DESC LIMIT 30
+  `).all()).results || [];
+  const realLinks = realRows.map(r => String(r.raw_link || '').trim()).filter(Boolean);
+  let real = { used: 0, checks: {}, preview: '' };
+  if (realLinks.length) {
+    const y2 = await buildClashYamlFromLinks(realLinks, env);
+    real = {
+      used: realLinks.length,
+      checks: {
+        hasProxies: /\nproxies:\n/.test(y2),
+        hasNodeSelect: /name:\s*节点选择/.test(y2),
+        hasManual: /name:\s*手动选择/.test(y2),
+        hasAuto: /name:\s*自动选择/.test(y2)
+      },
+      preview: y2.slice(0, 600)
+    };
+  }
+
+  return json({ ok: true, checks, length: y.length, preview: y.slice(0, 600), real });
 }
 
 async function initSchema(env) {
