@@ -851,6 +851,46 @@ function toYamlList(items = []) {
   return (Array.isArray(items) ? items : []).map(x => `  - "${escYaml(x)}"`).join('\n');
 }
 
+function parseLinkToProxyObj(raw = '', idx = 1) {
+  const link = String(raw || '').trim();
+  const name = parseNodeNameFromLink(link, idx);
+  try {
+    if (link.startsWith('ss://')) {
+      const u = new URL(link);
+      return { name, type: 'ss', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, cipher: 'aes-128-gcm', password: 'password' };
+    }
+    if (link.startsWith('trojan://')) {
+      const u = new URL(link);
+      return { name, type: 'trojan', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined };
+    }
+    if (link.startsWith('vmess://')) {
+      return { name, type: 'vmess', server: '0.0.0.0', port: 443, udp: true, uuid: '00000000-0000-0000-0000-000000000000', alterId: 0, cipher: 'auto' };
+    }
+    if (link.startsWith('vless://')) {
+      const u = new URL(link);
+      return { name, type: 'vless', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, uuid: decodeURIComponent(u.username || ''), network: u.searchParams.get('type') || 'tcp', tls: (u.searchParams.get('security') || '').toLowerCase() === 'tls', servername: u.searchParams.get('sni') || undefined };
+    }
+    if (link.startsWith('hysteria2://') || link.startsWith('hy2://')) {
+      const u = new URL(link.replace('hy2://', 'hysteria2://'));
+      return { name, type: 'hysteria2', server: u.hostname || '0.0.0.0', port: Number(u.port || 443), udp: true, password: decodeURIComponent(u.username || ''), sni: u.searchParams.get('sni') || undefined };
+    }
+  } catch {}
+  return { name, type: 'ss', server: '0.0.0.0', port: 443, udp: true, cipher: 'aes-128-gcm', password: 'password' };
+}
+
+function proxyObjToInlineYaml(p) {
+  const order = ['name', 'type', 'server', 'port', 'udp', 'uuid', 'alterId', 'cipher', 'password', 'network', 'tls', 'servername', 'sni'];
+  const arr = [];
+  for (const k of order) {
+    if (p[k] === undefined || p[k] === null || p[k] === '') continue;
+    const v = p[k];
+    if (typeof v === 'number') arr.push(`${k}: ${v}`);
+    else if (typeof v === 'boolean') arr.push(`${k}: ${v ? 'true' : 'false'}`);
+    else arr.push(`${k}: "${escYaml(String(v))}"`);
+  }
+  return `  - { ${arr.join(', ')} }`;
+}
+
 async function buildClashYamlFromLinks(links = [], env) {
   const list = (Array.isArray(links) ? links : []).filter(Boolean);
   const names = list.map((link, i) => parseNodeNameFromLink(link, i + 1));
@@ -868,7 +908,7 @@ async function buildClashYamlFromLinks(links = [], env) {
   const autoBlock = `  - name: 自动选择\n    type: url-test\n    include-all: true\n    proxies:\n${toYamlList(names)}\n    url: https://cp.cloudflare.com/generate_204\n    interval: 600\n    tolerance: 100\n    exclude-filter: "^(?i:(DIRECT|REJECT|PASS))$"`;
   yaml = yaml.replace(/(^\s*-\s*name:\s*自动选择[\s\S]*?exclude-filter:\s*"\^\(\?i:\(DIRECT\|REJECT\|PASS\)\)\$"\s*)/m, autoBlock + '\n');
 
-  const proxiesBlock = ['proxies:', ...list.map((raw, i) => `  - { name: "${escYaml(names[i])}", type: ss, server: 0.0.0.0, port: 443, udp: true }`)].join('\n');
+  const proxiesBlock = ['proxies:', ...list.map((raw, i) => proxyObjToInlineYaml(parseLinkToProxyObj(raw, i + 1)))].join('\n');
   yaml = yaml.replace(/^proxies:[\s\S]*?\nproxy-groups:/m, `${proxiesBlock}\nproxy-groups:`);
 
   return yaml;
