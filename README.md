@@ -220,11 +220,19 @@ https://<你的worker域名>/init?key=<你的INIT_KEY>
 
 ---
 
-### 5) 登录与使用
+### 5) 登录与使用（两种模式）
 
-- 打开 `https://<你的worker域名>/`
-- 用 `ADMIN_PASSWORD` 登录
-- 后续即可在页面里管理：源、节点、订阅下发
+#### 模式A：立刻完整可用（推荐）
+
+如果你现在就要“完整 Sub 面板”，在 Worker 变量新增：
+
+- `UPSTREAM_BASE`：例如 `https://sub.zzao.de`
+
+然后重新 Deploy。此时 Workers 会把整站反代到你现有稳定后端，功能立即完整可用（前端/API/订阅全可用）。
+
+#### 模式B：纯 Workers 原生版
+
+不设置 `UPSTREAM_BASE`，按本文件其余步骤使用 D1 原生接口。
 
 ---
 
