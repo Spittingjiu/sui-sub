@@ -215,72 +215,24 @@ database_id = "<你的D1数据库ID>"
 # id = "<你的KV_ID>"
 ```
 
-### 4) 创建 D1 并初始化表
+### 4) 创建 D1 并初始化表（更简单：一键自动化）
 
-先建库：
+先建库并绑定 `DB` 后，你可以直接走一键初始化，不用进 D1 控制台贴 SQL：
 
-```bash
-npx wrangler d1 create sui-sub-db
+1. 在 Workers 变量里新增一个 secret：`INIT_KEY`（随便设一个长随机值）
+2. 部署后浏览器访问：
+
+```text
+https://<你的worker域名>/init?key=<你的INIT_KEY>
 ```
 
-然后执行初始化 SQL（新建 `schema.sql`，至少包含以下表）：
+看到返回：`schema initialized` 就代表建表完成。
 
-- `sources`
-- `nodes`
-- `subscriptions`
-- `node_connectivity`
+> 建议初始化成功后，把 `INIT_KEY` 删掉或改掉，避免被重复触发。
 
-最小示例：
+---
 
-```sql
-CREATE TABLE IF NOT EXISTS sources (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  panel_url TEXT NOT NULL,
-  panel_token TEXT NOT NULL DEFAULT '',
-  source_type TEXT NOT NULL DEFAULT 'sui_api',
-  enabled INTEGER NOT NULL DEFAULT 1,
-  last_sync_at TEXT,
-  last_sync_status TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS nodes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_id INTEGER NOT NULL,
-  node_hash TEXT NOT NULL,
-  node_name TEXT,
-  raw_link TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE(source_id, node_hash)
-);
-
-CREATE TABLE IF NOT EXISTS subscriptions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  token TEXT NOT NULL UNIQUE,
-  source_ids_json TEXT NOT NULL DEFAULT '[]',
-  node_ids_json TEXT NOT NULL DEFAULT '[]',
-  auto_prune_unreachable INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS node_connectivity (
-  node_id INTEGER PRIMARY KEY,
-  status TEXT NOT NULL DEFAULT 'unknown',
-  latency_ms INTEGER,
-  last_error TEXT,
-  checked_at TEXT NOT NULL
-);
-```
-
-执行：
-
-```bash
-npx wrangler d1 execute sui-sub-db --file=./schema.sql
-```
+如果你更偏好手动 SQL，依然可以用 D1 控制台执行 README 里的建表语句。
 
 ### 5) 设置密钥
 

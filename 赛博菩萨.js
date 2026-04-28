@@ -16,6 +16,17 @@ export default {
       // 健康检查
       if (path === '/healthz') return json({ ok: true, runtime: 'cloudflare-workers' });
 
+      // 一键初始化 D1（首次部署用）
+      // 用法：GET /init?key=<INIT_KEY>
+      if (path === '/init' && method === 'GET') {
+        const key = url.searchParams.get('key') || '';
+        if (!key || key !== String(env.INIT_KEY || '')) {
+          return json({ ok: false, error: 'forbidden' }, 403);
+        }
+        const ret = await initSchema(env);
+        return json({ ok: true, ...ret });
+      }
+
       // 静态首页（可替换为你构建产物）
       if (method === 'GET' && (path === '/' || path === '/index.html')) {
         return withCors(new Response(buildHtml(), { headers: { 'content-type': 'text/html; charset=utf-8' } }));
@@ -238,6 +249,58 @@ async function serveSubscription(path, request, env, { mode = 'base64' } = {}) {
 async function runConnectivityNow(env, ctx) {
   ctx.waitUntil(runConnectivitySweep(env));
   return json({ ok: true, queued: true });
+}
+
+async function initSchema(env) {
+  const sqlList = [
+    `CREATE TABLE IF NOT EXISTS sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      panel_url TEXT NOT NULL,
+      panel_token TEXT NOT NULL DEFAULT '',
+      source_type TEXT NOT NULL DEFAULT 'sui_api',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_sync_at TEXT,
+      last_sync_status TEXT,
+      created_at TEXT NOT NULL
+    );`,
+    `CREATE TABLE IF NOT EXISTS nodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id INTEGER NOT NULL,
+      node_hash TEXT NOT NULL,
+      node_name TEXT,
+      raw_link TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(source_id, node_hash)
+    );`,
+    `CREATE TABLE IF NOT EXISTS subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      source_ids_json TEXT NOT NULL DEFAULT '[]',
+      node_ids_json TEXT NOT NULL DEFAULT '[]',
+      auto_prune_unreachable INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );`,
+    `CREATE TABLE IF NOT EXISTS node_connectivity (
+      node_id INTEGER PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'unknown',
+      latency_ms INTEGER,
+      last_error TEXT,
+      checked_at TEXT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_nodes_source_id ON nodes(source_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_subscriptions_token ON subscriptions(token);`,
+    `CREATE INDEX IF NOT EXISTS idx_connectivity_status ON node_connectivity(status);`
+  ];
+
+  for (const s of sqlList) {
+    await env.DB.prepare(s).run();
+  }
+
+  return { message: 'schema initialized', tables: ['sources', 'nodes', 'subscriptions', 'node_connectivity'] };
 }
 
 async function refreshSubscriptionConnectivity(sub, env) {
