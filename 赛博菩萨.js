@@ -171,9 +171,11 @@ async function createSource(request, env) {
   const b = await safeJson(request);
   const name = String(b?.name || '').trim();
   const panel_url = String(b?.panel_url || '').trim();
-  const panel_token = String(b?.panel_token || '').trim();
+  let panel_token = String(b?.panel_token || '').trim();
   const source_type = String(b?.source_type || 'sui_api').trim();
   if (!name || !panel_url) return json({ ok: false, error: 'name / panel_url 必填' }, 400);
+
+  if (source_type === 'sui_api') panel_token = await resolvePanelToken(panel_url, panel_token);
 
   await env.DB.prepare(`
     INSERT INTO sources(name,panel_url,panel_token,source_type,enabled,last_sync_at,last_sync_status,created_at)
@@ -381,6 +383,39 @@ async function getSourceById(env, sourceId) {
   return await env.DB.prepare('SELECT * FROM sources WHERE id=?').bind(sourceId).first();
 }
 
+async function resolvePanelToken(panelUrl, panelTokenOrUserPass) {
+  const base = String(panelUrl || '').trim().replace(/\/$/, '');
+  const raw = String(panelTokenOrUserPass || '').trim();
+  if (!raw) return '';
+  const m = raw.match(/^([^:\s]+):(.+)$/);
+  if (!m) return raw;
+  const username = m[1].trim();
+  const password = m[2];
+
+  const lr = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'accept': 'application/json' },
+    body: JSON.stringify({ username, password }),
+    redirect: 'manual'
+  });
+  if (!lr.ok) throw new Error(`面板登录失败 /api/login HTTP ${lr.status}`);
+
+  const setCookie = lr.headers.get('set-cookie') || '';
+  const cookie = setCookie.split(',').map(x => x.split(';')[0].trim()).filter(Boolean).join('; ');
+  const tr = await fetch(`${base}/api/panel/token`, {
+    method: 'GET',
+    headers: {
+      'accept': 'application/json',
+      ...(cookie ? { cookie } : {})
+    }
+  });
+  if (!tr.ok) throw new Error(`获取 token 失败 /api/panel/token HTTP ${tr.status}`);
+  const tj = await tr.json().catch(() => null);
+  const tk = String(tj?.obj?.token || tj?.token || '').trim();
+  if (!tk) throw new Error('面板未返回 token');
+  return tk;
+}
+
 async function suiRequest(source, path, options = {}) {
   const method = String(options?.method || 'GET');
   const hasBody = Object.prototype.hasOwnProperty.call(options || {}, 'body');
@@ -441,7 +476,11 @@ async function listSuiInbounds(path, env) {
     const j = await suiRequestTry(source, ['/api/inbounds', '/api/panel/inbounds']);
     return json({ ok: true, inbounds: normalizeInbounds(j) });
   } catch (e) {
-    return json({ ok: false, error: `SUI inbounds load failed: ${String(e?.message || e)}` }, 500);
+    const msg = String(e?.message || e);
+    if (/unauthorized|HTTP 401|\b1003\b/i.test(msg)) {
+      return json({ ok: false, error: `SUI inbounds load failed: ${msg}。请在源里把“面板API/令牌”改为 用户名:密码 重新保存，系统会自动换取 token。` }, 500);
+    }
+    return json({ ok: false, error: `SUI inbounds load failed: ${msg}` }, 500);
   }
 }
 
