@@ -10,12 +10,6 @@ export default {
       const path = url.pathname;
       const method = request.method.toUpperCase();
 
-      // 生产急用模式：配置 UPSTREAM_BASE 后，整站走反代，立刻获得“完整面板”
-      // 示例：UPSTREAM_BASE=https://sub.zzao.de
-      if (String(env.UPSTREAM_BASE || '').trim()) {
-        return await proxyAllToUpstream(request, env);
-      }
-
       const needDb = path.startsWith('/api/') || path.startsWith('/sub/') || path === '/init';
       if (needDb && !hasD1(env)) {
         return json({ ok: false, error: 'D1 binding missing: please bind D1 as variable name DB in Worker settings' }, 500);
@@ -498,32 +492,6 @@ function b64urlDecode(s) {
   return out;
 }
 
-async function proxyAllToUpstream(request, env) {
-  const upstreamBase = String(env.UPSTREAM_BASE || '').trim().replace(/\/$/, '');
-  if (!upstreamBase) return json({ ok: false, error: 'UPSTREAM_BASE empty' }, 500);
-
-  const reqUrl = new URL(request.url);
-  const target = new URL(upstreamBase + reqUrl.pathname + reqUrl.search);
-
-  const headers = new Headers(request.headers);
-  headers.delete('host');
-  headers.set('x-forwarded-host', reqUrl.host);
-  headers.set('x-forwarded-proto', reqUrl.protocol.replace(':', ''));
-
-  const init = {
-    method: request.method,
-    headers,
-    body: ['GET', 'HEAD'].includes(request.method.toUpperCase()) ? undefined : request.body,
-    redirect: 'manual'
-  };
-
-  const resp = await fetch(target.toString(), init);
-  const outHeaders = new Headers(resp.headers);
-  outHeaders.delete('content-security-policy');
-  outHeaders.delete('content-security-policy-report-only');
-  return withCors(new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: outHeaders }));
-}
-
 function buildHtml() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -539,9 +507,9 @@ function buildHtml() {
 </head>
 <body>
   <div class="card">
-    <h2>✅ SUI-SUB Workers 已启动</h2>
+    <h2>✅ SUI-SUB Workers 全量版入口已生效</h2>
     <p>主文件：<code>赛博菩萨.js</code></p>
-    <p>若要立刻使用完整面板，请在 Worker 变量里设置 <code>UPSTREAM_BASE</code>（例如 <code>https://sub.zzao.de</code>），然后重新部署。</p>
+    <p>当前为 Workers 原生版本，不走上游反代。</p>
   </div>
 </body>
 </html>`;
