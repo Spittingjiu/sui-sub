@@ -169,114 +169,77 @@ bash scripts/sprint-a-proxy-smoke.sh
 
 ---
 
-## ☁️ Workers 完整版使用教程（`赛博菩萨.js`）
+## ☁️ Workers 完整版使用教程（`赛博菩萨.js`，网页端版）
 
-> 你要求的“完整 Workers 版”主文件已经在仓库：`赛博菩萨.js`。
-> 这一节只讲怎么用，不做旧库迁移。
+> 你要求的“完整 Workers 版”主文件已经在仓库：`赛博菩萨.js`。  
+> 本教程按“纯网页端”写，不依赖 VPS 命令行，不迁移旧数据。
 
-### 1) 前置准备
+### 1) 在 Cloudflare 创建 Worker（网页）
 
-- 一个 Cloudflare 账号
-- 已安装 `wrangler`（建议 v3+）
-- 已登录：
+1. 打开 Cloudflare Dashboard → **Workers & Pages**
+2. 点 **Create** → **Worker**
+3. 进入编辑器后，把默认代码全部替换为仓库里的 `赛博菩萨.js`
+4. 点击 **Deploy**
 
-```bash
-npx wrangler login
-```
+---
 
-### 2) 创建 Workers 项目并放入主文件
+### 2) 创建并绑定 D1（网页）
 
-在本仓库目录执行：
+1. 打开 **Storage & Databases** → **D1 SQL Database**
+2. 点击 **Create**，创建 `sui-sub-db`（名称可自定义）
+3. 回到你的 Worker → **Settings** → **Bindings**
+4. 添加 D1 绑定：
+   - Variable name: `DB`
+   - Database: 选择你刚创建的 D1
 
-```bash
-# 可选：初始化最小 wrangler 配置
-npx wrangler init sui-sub-workers
-```
+---
 
-然后将 `赛博菩萨.js` 作为 Worker 入口（你可以直接用它替换默认 `src/index.js`，或在 wrangler 里指定 `main`）。
+### 3) 添加 Secrets（网页）
 
-### 3) 配置 `wrangler.toml`（核心）
+Worker → **Settings** → **Variables and Secrets**，添加以下 Secret：
 
-示例（按你的实际 ID 替换）：
+- `ADMIN_PASSWORD`：你的管理登录密码
+- `SESSION_SECRET`：会话签名密钥（建议长随机串）
+- `INIT_KEY`：初始化口令（用于一键建表）
 
-```toml
-name = "sui-sub-workers"
-main = "赛博菩萨.js"
-compatibility_date = "2026-04-28"
+保存并重新部署。
 
-[[d1_databases]]
-binding = "DB"
-database_name = "sui-sub-db"
-database_id = "<你的D1数据库ID>"
+---
 
-# 可选：若后续要做缓存/静态资源
-# [[kv_namespaces]]
-# binding = "CACHE_KV"
-# id = "<你的KV_ID>"
-```
+### 4) 一键自动建表（无需手贴 SQL）
 
-### 4) 创建 D1 并初始化表（更简单：一键自动化）
-
-先建库并绑定 `DB` 后，你可以直接走一键初始化，不用进 D1 控制台贴 SQL：
-
-1. 在 Workers 变量里新增一个 secret：`INIT_KEY`（随便设一个长随机值）
-2. 部署后浏览器访问：
+浏览器访问：
 
 ```text
 https://<你的worker域名>/init?key=<你的INIT_KEY>
 ```
 
-看到返回：`schema initialized` 就代表建表完成。
+返回 `schema initialized` 即表示 D1 表结构初始化完成。
 
-> 建议初始化成功后，把 `INIT_KEY` 删掉或改掉，避免被重复触发。
-
----
-
-如果你更偏好手动 SQL，依然可以用 D1 控制台执行 README 里的建表语句。
-
-### 5) 设置密钥
-
-`赛博菩萨.js` 需要以下环境变量：
-
-- `ADMIN_PASSWORD`（登录密码）
-- `SESSION_SECRET`（会话签名密钥，建议高强度随机）
-
-设置命令：
-
-```bash
-npx wrangler secret put ADMIN_PASSWORD
-npx wrangler secret put SESSION_SECRET
-```
-
-### 6) 本地联调
-
-```bash
-npx wrangler dev
-```
-
-访问本地地址后：
-
-- `POST /api/auth/login`：用 `ADMIN_PASSWORD` 登录
-- `GET /api/auth/me`：检查会话
-- `GET /api/sources`：查看源
-- `GET /sub/:token`：下发订阅（会先触发一次该订阅连通性检测）
-
-### 7) 发布上线
-
-```bash
-npx wrangler deploy
-```
-
-上线后即可通过 `https://<worker域名>` 访问。
+> 建议初始化后删除或重置 `INIT_KEY`，避免被重复触发。
 
 ---
 
-### 注意事项（务必看）
+### 5) 登录与使用
 
-1. `赛博菩萨.js` 是 Workers 全量主干，适配的是 D1 数据模型，不是本地 SQLite 文件。  
-2. 你要求“不迁移旧数据”，那就按新库直接开始使用。  
-3. 连通性检测在 Workers 内不做原生 TCP 直连，当前走上游 `sui_api` 的链路测试接口。  
-4. 若要接入你现有完整前端 UI，可把当前 `buildHtml()` 替换为静态资源分发（Pages/Assets）。
+- 打开 `https://<你的worker域名>/`
+- 用 `ADMIN_PASSWORD` 登录
+- 后续即可在页面里管理：源、节点、订阅下发
+
+---
+
+### 6) 关键说明
+
+1. 这是完整功能版，数据依赖 D1（不是本地 SQLite）。  
+2. 你要求“不迁移旧数据”，当前就是新库起用。  
+3. 订阅下发时会先触发该订阅的一轮连通性检测，再按结果下发。  
+4. Workers 环境不做原生 TCP 直连，连通性检测走上游 `sui_api` 链路测试接口。
+
+---
+
+### 7) 可选：CLI 同步方案（仅备查）
+
+如果你后续想走命令行部署，再看本仓库的 wrangler 方案即可；当前网页端流程已可完整上线。
 
 ## API Documentation
 
