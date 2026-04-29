@@ -632,7 +632,7 @@ async function checkConnectivity(){
     checkingConnectivity=true;
     const sourceId=(sourceViewId==='all'?0:Number(sourceViewId)||0);
     if(nm){nm.textContent='';}
-    await api('/api/nodes/connectivity/check',{method:'POST',body:JSON.stringify({sourceId,limit:20})});
+    await api('/api/nodes/connectivity/check',{method:'POST',body:JSON.stringify({sourceId,limit:50})});
     await loadNodes();
     if(nm){nm.textContent='';}
   }catch(e){
@@ -927,7 +927,7 @@ async function loadAdminUser(){
   q('#adminUser').value=j.username||'';
   q('#adminPass').value='';
   if(q('#autoConnectivityMin')) q('#autoConnectivityMin').value=Math.max(1,Math.round(Number(j.auto_connectivity_ms||600000)/60000));
-  if(q('#autoConnectivityLimit')) q('#autoConnectivityLimit').value=Number(j.auto_connectivity_limit||60);
+  if(q('#autoConnectivityLimit')) q('#autoConnectivityLimit').value=Number(j.auto_connectivity_limit||50);
   renderConnectivityStatus(j.connectivity_status||{});
   await loadSubLogs();
 }

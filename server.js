@@ -29,7 +29,7 @@ if (SESSION_SECRET === SESSION_SECRET_DEFAULT) {
 const AUTO_SYNC_MS = Number(process.env.SUI_SUB_SYNC_MS || 5 * 60 * 1000);
 const VIEW_CACHE_MS = Number(process.env.SUI_SUB_VIEW_CACHE_MS || 2000);
 const DEFAULT_AUTO_CONNECTIVITY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MS || 10 * 60 * 1000);
-const DEFAULT_AUTO_CONNECTIVITY_LIMIT = Math.max(1, Math.min(200, Number(process.env.SUI_SUB_CONNECTIVITY_LIMIT || 60)));
+const DEFAULT_AUTO_CONNECTIVITY_LIMIT = Math.max(1, Math.min(50, Number(process.env.SUI_SUB_CONNECTIVITY_LIMIT || 50)));
 let autoConnectivityMs = DEFAULT_AUTO_CONNECTIVITY_MS;
 let autoConnectivityLimit = DEFAULT_AUTO_CONNECTIVITY_LIMIT;
 const E2EE_KEYS_FILE = path.join(__dirname, 'data', 'e2ee-keys.json');
@@ -41,7 +41,7 @@ const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_
 const MIHOMO_BIN = '/usr/local/bin/mihomo';
 const MIHOMO_TMP = path.join(__dirname, 'data', 'mihomo-install');
 const CONNECTIVITY_MAX_LATENCY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MAX_LATENCY_MS || 5000);
-const CONNECTIVITY_CONCURRENCY = Math.max(1, Math.min(30, Number(process.env.SUI_SUB_CONNECTIVITY_CONCURRENCY || 8)));
+const CONNECTIVITY_CONCURRENCY = Math.max(1, Math.min(50, Number(process.env.SUI_SUB_CONNECTIVITY_CONCURRENCY || 50)));
 
 
 function ensureE2EEKeys(){
@@ -578,8 +578,8 @@ async function runConnectivityRows(rows = []) {
   return out.filter(Boolean);
 }
 
-async function runConnectivityBatch(sourceId = 0, limit = 20) {
-  const lim = Math.max(1, Math.min(200, Number(limit || 20)));
+async function runConnectivityBatch(sourceId = 0, limit = 50) {
+  const lim = Math.max(1, Math.min(50, Number(limit || 50)));
   const rows = sourceId > 0
     ? db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.source_id=? ORDER BY n.id DESC LIMIT ?`).all(sourceId, lim)
     : db.prepare(`SELECT n.id,n.source_id,n.node_hash,n.raw_link,n.node_name,s.source_type,s.panel_url,s.panel_token FROM nodes n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id DESC LIMIT ?`).all(lim);
@@ -596,7 +596,7 @@ let connectivitySweepLastDurationMs = 0;
 
 function normalizeConnectivitySettings(ms, limit) {
   const m = Math.max(60 * 1000, Math.min(24 * 60 * 60 * 1000, Number(ms || DEFAULT_AUTO_CONNECTIVITY_MS)));
-  const l = Math.max(1, Math.min(200, Number(limit || DEFAULT_AUTO_CONNECTIVITY_LIMIT)));
+  const l = Math.max(1, Math.min(50, Number(limit || DEFAULT_AUTO_CONNECTIVITY_LIMIT)));
   return { ms: m, limit: l };
 }
 
@@ -1090,7 +1090,7 @@ app.post('/api/kernel/uninstall', (_req, res) => {
 app.post('/api/nodes/connectivity/check', async (req, res) => {
   try {
     const sourceId = Number(req.body?.sourceId || 0);
-    const limit = Number(req.body?.limit || 20);
+    const limit = Number(req.body?.limit || 50);
     const rows = await runConnectivityBatch(sourceId, limit);
     cacheInvalidate();
     res.json({ ok: true, checked: rows.length, items: rows });
@@ -2536,11 +2536,11 @@ function getSubNodeLinksBySub(sub) {
   return rows.map(x => normalizeUniversalRawLink(x.raw_link));
 }
 
-function getSubConnectivityRows(sub, limit = 200) {
+function getSubConnectivityRows(sub, limit = 50) {
   if (!sub) return [];
   const sourceIds = (JSON.parse(sub.source_ids_json || '[]') || []).map(Number).filter(Boolean);
   const nodeIds = (JSON.parse(sub.node_ids_json || '[]') || []).map(Number).filter(Boolean);
-  const lim = Math.max(1, Math.min(200, Number(limit || 200)));
+  const lim = Math.max(1, Math.min(50, Number(limit || 50)));
 
   if (nodeIds.length) {
     const p = nodeIds.map(() => '?').join(',');
@@ -2570,7 +2570,7 @@ function getSubConnectivityRows(sub, limit = 200) {
 }
 
 async function refreshSubscriptionConnectivity(sub) {
-  const rows = getSubConnectivityRows(sub, autoConnectivityLimit || DEFAULT_AUTO_CONNECTIVITY_LIMIT || 60);
+  const rows = getSubConnectivityRows(sub, autoConnectivityLimit || DEFAULT_AUTO_CONNECTIVITY_LIMIT || 50);
   if (!rows.length) return;
   await runConnectivityRows(rows);
   cacheInvalidate();
