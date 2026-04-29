@@ -8,7 +8,7 @@ import os from 'node:os';
 import net from 'node:net';
 import dns from 'node:dns/promises';
 import zlib from 'node:zlib';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import fetch from 'node-fetch';
 import YAML from 'js-yaml';
 
@@ -40,7 +40,7 @@ const CLASH_TEMPLATE_CACHE_MS = Number(process.env.SUI_SUB_CLASH_TEMPLATE_CACHE_
 
 const MIHOMO_BIN = '/usr/local/bin/mihomo';
 const MIHOMO_TMP = path.join(__dirname, 'data', 'mihomo-install');
-const CONNECTIVITY_MAX_LATENCY_MS = 2000;
+const CONNECTIVITY_MAX_LATENCY_MS = Number(process.env.SUI_SUB_CONNECTIVITY_MAX_LATENCY_MS || 5000);
 const CONNECTIVITY_CONCURRENCY = Math.max(1, Math.min(30, Number(process.env.SUI_SUB_CONNECTIVITY_CONCURRENCY || 8)));
 
 
@@ -471,48 +471,86 @@ async function tcpCheckHostPort(host, port, timeoutMs = 4000) {
   });
 }
 
-async function checkNodeConnectivity(row) {
-  if (!mihomoInstalled()) return { status: 'unknown', latency_ms: null, last_error: 'mihomo not installed' };
-  if (String(row?.source_type || 'sui_api') === 'local') {
-    const hp = parseHostPortFromRawLink(row?.raw_link || '');
-    if (!hp) return { status: 'disconnected', latency_ms: null, last_error: 'cannot parse host/port from local node link' };
-    const ret = await tcpCheckHostPort(hp.host, hp.port, CONNECTIVITY_MAX_LATENCY_MS);
-    if (ret.status === 'ok' && Number(ret.latency_ms || 0) > CONNECTIVITY_MAX_LATENCY_MS) {
-      return { status: 'disconnected', latency_ms: null, last_error: `latency>${CONNECTIVITY_MAX_LATENCY_MS}ms` };
-    }
-    return ret;
-  }
-  if (!row?.panel_token) return { status: 'disconnected', latency_ms: null, last_error: 'panel token empty' };
+async function reserveLocalPort() {
+  return await new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, '127.0.0.1', () => {
+      const port = srv.address()?.port;
+      srv.close(() => port ? resolve(port) : reject(new Error('local port unavailable')));
+    });
+    srv.on('error', reject);
+  });
+}
 
-  const source = {
-    id: row.source_id,
-    panel_url: row.panel_url,
-    panel_token: row.panel_token,
-    source_type: row.source_type
+async function waitForLocalPort(port, timeoutMs = 2500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const ret = await tcpCheckHostPort('127.0.0.1', port, 250);
+    if (ret.status === 'ok') return true;
+    await new Promise(r => setTimeout(r, 80));
+  }
+  throw new Error(`mihomo listen timeout>${timeoutMs}ms`);
+}
+
+async function checkNodeWithMihomo(row, timeoutMs = CONNECTIVITY_MAX_LATENCY_MS) {
+  const raw = normalizeUniversalRawLink(row?.raw_link || '');
+  const proxy = parseLinkToClashProxy(raw, uniqNameFactory());
+  if (!proxy) return { status: 'disconnected', latency_ms: null, last_error: 'cannot parse node link' };
+
+  const port = await reserveLocalPort();
+  const dir = path.join(os.tmpdir(), `sui-sub-mihomo-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const configPath = path.join(dir, 'config.yaml');
+  const cfg = {
+    'mixed-port': port,
+    'allow-lan': false,
+    'bind-address': '127.0.0.1',
+    mode: 'rule',
+    'log-level': 'silent',
+    proxies: [proxy],
+    'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: [proxy.name] }],
+    rules: ['MATCH,PROXY']
+  };
+  fs.writeFileSync(configPath, toYaml(cfg) + '\n');
+
+  let proc;
+  const logs = [];
+  const started = Date.now();
+  const cleanup = () => {
+    try { if (proc && !proc.killed) proc.kill('SIGKILL'); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   };
 
-  const start = Date.now();
   try {
-    const inboundId = await findSuiInboundIdByNodeHash(source, row.node_hash, CONNECTIVITY_MAX_LATENCY_MS);
-    const payload = { host: 'cp.cloudflare.com', port: 443 };
-    if (inboundId) payload.inboundId = Number(inboundId);
+    proc = spawn(MIHOMO_BIN, ['-f', configPath, '-d', dir], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const pushLog = (buf) => {
+      const s = String(buf || '').trim();
+      if (s) logs.push(s.slice(0, 500));
+    };
+    proc.stdout.on('data', pushLog);
+    proc.stderr.on('data', pushLog);
+    await waitForLocalPort(port, Math.min(2500, Math.max(1000, timeoutMs - 1000)));
 
-    const j = await suiRequest(source, '/api/system/chain/test', 'POST', payload, CONNECTIVITY_MAX_LATENCY_MS);
-    const latency = Math.max(1, Date.now() - start);
-    if (j?.success) {
-      if (latency > CONNECTIVITY_MAX_LATENCY_MS) {
-        return { status: 'disconnected', latency_ms: null, last_error: `latency>${CONNECTIVITY_MAX_LATENCY_MS}ms` };
-      }
-      return { status: 'ok', latency_ms: latency, last_error: '' };
+    const curl = spawnSync('curl', ['-x', `http://127.0.0.1:${port}`, '-k', '-L', '--connect-timeout', String(Math.ceil(timeoutMs / 1000)), '--max-time', String(Math.ceil(timeoutMs / 1000)), '-sS', '-o', '/dev/null', '-w', '%{http_code} %{time_total}', 'https://www.gstatic.com/generate_204'], { encoding: 'utf8', timeout: timeoutMs + 1500 });
+    const elapsed = Math.max(1, Date.now() - started);
+    const out = String(curl.stdout || '').trim();
+    const code = Number((out.split(/\s+/)[0] || 0));
+    if (curl.status === 0 && (code === 204 || (code >= 200 && code < 400))) {
+      return { status: 'ok', latency_ms: elapsed, last_error: '' };
     }
-    return { status: 'fail', latency_ms: null, last_error: String(j?.msg || 'chain test failed').slice(0, 180) };
+    const err = String(curl.stderr || curl.error?.message || out || logs.join(' | ') || 'mihomo check failed').slice(0, 180);
+    return { status: 'disconnected', latency_ms: null, last_error: err };
   } catch (e) {
     const msg = String(e?.message || e).slice(0, 180);
-    if (String(msg).toLowerCase().includes('timeout')) {
-      return { status: 'disconnected', latency_ms: null, last_error: `timeout>${CONNECTIVITY_MAX_LATENCY_MS}ms` };
-    }
-    return { status: 'fail', latency_ms: null, last_error: msg };
+    return { status: 'disconnected', latency_ms: null, last_error: msg.includes('timeout') ? `timeout>${timeoutMs}ms` : msg };
+  } finally {
+    cleanup();
   }
+}
+
+async function checkNodeConnectivity(row) {
+  if (!mihomoInstalled()) return { status: 'unknown', latency_ms: null, last_error: 'mihomo not installed' };
+  return await checkNodeWithMihomo(row, CONNECTIVITY_MAX_LATENCY_MS);
 }
 
 async function runConnectivityRows(rows = []) {
