@@ -1343,6 +1343,18 @@ app.post('/api/sources', async (req, res) => {
   }
 });
 
+app.post('/api/sources/:id/sync', async (req, res) => {
+  try {
+    const id = Number(req.params.id || 0);
+    if (!id) return res.status(400).json({ ok: false, error: 'source id required' });
+    const st = await syncSource(id);
+    cacheInvalidate();
+    res.json({ ok: true, source_id: id, result: st });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.put('/api/sources/:id', (req, res) => {
   try {
     const id = Number(req.params.id);
