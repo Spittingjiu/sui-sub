@@ -884,6 +884,51 @@ async function fetchCfSubscriptionLinks(source) {
   return nodes;
 }
 
+function normalizeSbuiBaseUrl(raw) {
+  const base = String(raw || '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+  if (/\/api\/v1\/sub\//i.test(base)) return base.replace(/\/api\/v1\/sub\/[^/?#]+.*$/i, '');
+  return base;
+}
+
+function sbuiSubscriptionUrl(source) {
+  const base = normalizeSbuiBaseUrl(source.panel_url || '');
+  if (!base) return '';
+  if (/\/api\/v1\/sub\//i.test(String(source.panel_url || ''))) return String(source.panel_url || '').trim();
+  return `${base}/api/v1/sub/default`;
+}
+
+async function fetchSbuiSubscriptionLinks(source) {
+  const subUrl = sbuiSubscriptionUrl(source);
+  if (!subUrl) throw new Error('sbui url empty');
+  await assertUrlSafe(subUrl, 'ssrf blocked: sbui url not allowed');
+  const r = await fetch(subUrl, { headers: { 'user-agent': 'sui-sub/1.0 sbui-adapter', 'accept': 'text/plain,*/*' } });
+  if (!r.ok) throw new Error(`sbui sub fetch HTTP ${r.status}`);
+  const text = await r.text();
+  const nodes = parseSubscriptionText(text);
+  if (!nodes.length) throw new Error('sbui sub parse failed: no node found');
+  return nodes;
+}
+
+async function validateSbuiSourceUrl(pu) {
+  const base = normalizeSbuiBaseUrl(pu);
+  await assertUrlSafe(base || pu, 'ssrf blocked: sbui url not allowed');
+  const discover = `${base}/api/v1/discover`;
+  try {
+    const r = await fetch(discover, { headers: { 'user-agent': 'sui-sub/1.0 sbui-adapter', 'accept': 'application/json,*/*' } });
+    if (r.ok) {
+      const j = await r.json().catch(() => null);
+      if (j && (j.kind === 'sbui' || j.version === 's-matrix.sub.v1')) return true;
+    }
+  } catch {}
+  const subUrl = /\/api\/v1\/sub\//i.test(String(pu || '')) ? String(pu || '').trim() : `${base}/api/v1/sub/default`;
+  const r = await fetch(subUrl, { headers: { 'user-agent': 'sui-sub/1.0 sbui-adapter', 'accept': 'text/plain,*/*' } });
+  if (!r.ok) throw new Error(`SBUI 订阅不可用 HTTP ${r.status}`);
+  const parsed = parseSubscriptionText(await r.text());
+  if (!parsed.length) throw new Error('SBUI 订阅解析失败（未识别到节点）');
+  return true;
+}
+
 async function findSuiInboundIdByNodeHash(source, nodeHash, timeoutMs = 8000) {
   const j = await suiRequest(source, '/api/inbounds', 'GET', undefined, timeoutMs);
   if (!j?.success || !Array.isArray(j?.obj)) return null;
@@ -981,8 +1026,11 @@ async function syncSource(id) {
   if (String(source.source_type || 'sui_api') === 'local') return { local: true };
 
   let nodes = [];
-  if (String(source.source_type || 'sui_api') === 'cf_sub') {
+  const sourceType = String(source.source_type || 'sui_api');
+  if (sourceType === 'cf_sub') {
     nodes = await fetchCfSubscriptionLinks(source);
+  } else if (sourceType === 'sbui') {
+    nodes = await fetchSbuiSubscriptionLinks(source);
   } else {
     if (!source.panel_token) throw new Error('panel token empty');
 
@@ -1250,6 +1298,9 @@ app.post('/api/sources', async (req, res) => {
       const t = await r.text();
       const parsed = parseSubscriptionText(t);
       if (!parsed.length) return res.status(400).json({ ok: false, error: 'CF 订阅解析失败（未识别到节点）' });
+    } else if (st === 'sbui') {
+      await validateSbuiSourceUrl(pu);
+      finalToken = '';
     } else {
       if (!auth) return res.status(400).json({ ok: false, error: 'SUI 源需要 token（或账号:密码）' });
       const m = auth.match(/^([^:\s]+):(.+)$/);
