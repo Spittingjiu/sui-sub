@@ -171,21 +171,21 @@ nodeCols = db.prepare(`PRAGMA table_info(nodes)`).all().map(x => x.name);
 
 function ensureNodeDisplayNumbers() {
   if (!nodeCols.includes('display_no')) return;
-  const sources = db.prepare('SELECT DISTINCT source_id FROM nodes WHERE display_no IS NULL ORDER BY source_id').all();
+  const total = Number(db.prepare('SELECT COUNT(*) AS c FROM nodes').get().c || 0);
+  const distinct = Number(db.prepare('SELECT COUNT(DISTINCT display_no) AS c FROM nodes WHERE display_no IS NOT NULL').get().c || 0);
+  const missing = Number(db.prepare('SELECT COUNT(*) AS c FROM nodes WHERE display_no IS NULL').get().c || 0);
+  if (missing === 0 && distinct === total) return;
+  const rows = db.prepare('SELECT id FROM nodes ORDER BY created_at ASC, id ASC').all();
   const update = db.prepare('UPDATE nodes SET display_no=? WHERE id=?');
   const tx = db.transaction(() => {
-    for (const src of sources) {
-      const sourceId = Number(src.source_id || 0);
-      let next = Number(db.prepare('SELECT COALESCE(MAX(display_no),0)+1 AS n FROM nodes WHERE source_id=?').get(sourceId).n || 1);
-      const rows = db.prepare('SELECT id FROM nodes WHERE source_id=? AND display_no IS NULL ORDER BY created_at ASC, id ASC').all(sourceId);
-      for (const r of rows) update.run(next++, r.id);
-    }
+    let next = 1;
+    for (const r of rows) update.run(next++, r.id);
   });
   tx();
 }
 
-function nextNodeDisplayNo(sourceId) {
-  const row = db.prepare('SELECT COALESCE(MAX(display_no),0)+1 AS n FROM nodes WHERE source_id=?').get(sourceId);
+function nextNodeDisplayNo(_sourceId) {
+  const row = db.prepare('SELECT COALESCE(MAX(display_no),0)+1 AS n FROM nodes').get();
   return Number(row?.n || 1);
 }
 
@@ -202,7 +202,7 @@ function sourceDisplayPrefix(row={}) {
 function withNodeDisplayIds(rows) {
   return (rows || []).map(r => {
     const displayNo = Number(r.display_no || 0) || Number(r.id || 0);
-    return { ...r, display_no: displayNo, display_id: `${sourceDisplayPrefix(r)}-${String(displayNo).padStart(3, '0')}`, real_id: Number(r.id || 0) };
+    return { ...r, display_no: displayNo, display_id: String(displayNo).padStart(3, '0'), real_id: Number(r.id || 0) };
   });
 }
 
