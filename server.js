@@ -1070,27 +1070,10 @@ function normalizeSbuiInbound(ib) {
 }
 
 async function sbuiRenameInbound(source, inboundId, remark) {
-  const list = await sbuiRequest(source, '/api/v1/inbounds');
-  const arr = Array.isArray(list?.obj) ? list.obj : [];
-  const ib = arr.find(x => Number(x.id || 0) === Number(inboundId));
-  if (!ib) throw new Error('SBUI inbound not found');
-  const payload = {};
-  try { Object.assign(payload, JSON.parse(ib.payload || '{}')); } catch {}
-  payload.tag = remark;
-  payload.port = Number(ib.port || payload.port || 0);
-  const proto = sbuiInboundProtocol(ib.type || '');
-  const kind = `inbound-${proto === 'vless' ? 'reality' : proto}`;
-  const nodes = arr.map((x, idx) => {
-    const data = {};
-    try { Object.assign(data, JSON.parse(x.payload || '{}')); } catch {}
-    data.tag = Number(x.id || 0) === Number(inboundId) ? remark : (x.tag || `node-${idx}`);
-    data.port = Number(x.port || data.port || 0);
-    const p = sbuiInboundProtocol(x.type || '');
-    return { id: `keep-${idx}`, kind: `inbound-${p === 'vless' ? 'reality' : p}`, label: data.tag, data };
-  });
-  await sbuiRequest(source, '/api/v1/singbox/compile', 'POST', { nodes, edges: [] });
+  await sbuiRequest(source, `/api/v1/inbounds/${Number(inboundId)}/rename`, 'PUT', { remark });
   return true;
 }
+
 
 async function findSuiInboundIdByNodeHash(source, nodeHash, timeoutMs = 8000) {
   const j = await suiRequest(source, '/api/inbounds', 'GET', undefined, timeoutMs);
