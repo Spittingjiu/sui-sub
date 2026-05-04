@@ -648,7 +648,7 @@ function renderNodes(){
     const op=isLocal
       ? `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button> <button onclick="deleteLocalNode(${id})">删除</button>`
       : `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button>`;
-    return `<tr><td><span class="pill" title="真实ID: ${id}">${esc(n.display_id||('#'+id))}</span></td><td>${esc(n.source_name||n.source_id)}</td><td>${esc(n.node_name||'')}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
+    return `<tr><td title="真实ID: ${id}">${esc(n.display_id||('#'+id))}</td><td>${esc(n.source_name||n.source_id)}</td><td>${esc(n.node_name||'')}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
 let checkingConnectivity=false;
