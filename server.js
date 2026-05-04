@@ -991,6 +991,90 @@ async function validateSbuiSourceUrl(pu) {
   return true;
 }
 
+
+function parseSbuiCredential(source) {
+  const raw = String(source.panel_token || '').trim();
+  if (!raw) return { token: '' };
+  if (raw.includes(':') && !raw.startsWith('eyJ')) {
+    const [username, ...rest] = raw.split(':');
+    return { username: username.trim(), password: rest.join(':').trim(), token: '' };
+  }
+  return { token: raw };
+}
+
+async function sbuiToken(source) {
+  const cred = parseSbuiCredential(source);
+  if (cred.token) return cred.token;
+  if (!cred.username || !cred.password) return '';
+  const base = normalizeSbuiBaseUrl(source.panel_url || '');
+  await assertUrlSafe(base, 'ssrf blocked: sbui url not allowed');
+  const r = await fetch(`${base}/api/v1/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'accept': 'application/json', 'user-agent': 'sui-sub/1.0 sbui-panel' },
+    body: JSON.stringify({ username: cred.username, password: cred.password })
+  });
+  if (!r.ok) throw new Error(`SBUI login HTTP ${r.status}`);
+  const j = await r.json().catch(() => null);
+  const token = String(j?.token || '').trim();
+  if (!token) throw new Error('SBUI login missing token');
+  return token;
+}
+
+async function sbuiRequest(source, apiPath, method = 'GET', body) {
+  const base = normalizeSbuiBaseUrl(source.panel_url || '');
+  if (!base) throw new Error('sbui url empty');
+  await assertUrlSafe(base, 'ssrf blocked: sbui url not allowed');
+  const token = await sbuiToken(source);
+  const headers = { 'accept': 'application/json', 'user-agent': 'sui-sub/1.0 sbui-panel' };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const r = await fetch(`${base}${apiPath}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await r.text();
+  let j = null;
+  try { j = text ? JSON.parse(text) : null; } catch {}
+  if (!r.ok) throw new Error(j?.error || `SBUI HTTP ${r.status}`);
+  if (!j || typeof j !== 'object') throw new Error('SBUI response invalid');
+  return j;
+}
+
+function sbuiInboundProtocol(type='') {
+  return ({ vless:'reality', hysteria2:'hy2', hysteria:'hysteria', vmess:'vmess', trojan:'trojan', shadowsocks:'shadowsocks', socks:'socks', http:'http', tuic:'tuic', naive:'naive', shadowtls:'shadowtls', anytls:'anytls' })[String(type||'').toLowerCase()] || String(type||'');
+}
+
+function normalizeSbuiInbound(ib) {
+  return {
+    id: Number(ib.id || 0),
+    remark: ib.tag || ib.remark || ib.node_name || '',
+    protocol: sbuiInboundProtocol(ib.type || ib.protocol || ''),
+    port: ib.port || '',
+    enable: ib.enabled !== false,
+    raw: ib,
+  };
+}
+
+async function sbuiRenameInbound(source, inboundId, remark) {
+  const list = await sbuiRequest(source, '/api/v1/inbounds');
+  const arr = Array.isArray(list?.obj) ? list.obj : [];
+  const ib = arr.find(x => Number(x.id || 0) === Number(inboundId));
+  if (!ib) throw new Error('SBUI inbound not found');
+  const payload = {};
+  try { Object.assign(payload, JSON.parse(ib.payload || '{}')); } catch {}
+  payload.tag = remark;
+  payload.port = Number(ib.port || payload.port || 0);
+  const proto = sbuiInboundProtocol(ib.type || '');
+  const kind = `inbound-${proto === 'vless' ? 'reality' : proto}`;
+  const nodes = arr.map((x, idx) => {
+    const data = {};
+    try { Object.assign(data, JSON.parse(x.payload || '{}')); } catch {}
+    data.tag = Number(x.id || 0) === Number(inboundId) ? remark : (x.tag || `node-${idx}`);
+    data.port = Number(x.port || data.port || 0);
+    const p = sbuiInboundProtocol(x.type || '');
+    return { id: `keep-${idx}`, kind: `inbound-${p === 'vless' ? 'reality' : p}`, label: data.tag, data };
+  });
+  await sbuiRequest(source, '/api/v1/singbox/compile', 'POST', { nodes, edges: [] });
+  return true;
+}
+
 async function findSuiInboundIdByNodeHash(source, nodeHash, timeoutMs = 8000) {
   const j = await suiRequest(source, '/api/inbounds', 'GET', undefined, timeoutMs);
   if (!j?.success || !Array.isArray(j?.obj)) return null;
@@ -1734,8 +1818,13 @@ app.get('/api/sui/:sourceId/inbounds', async (req, res) => {
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
     const st = String(source.source_type || 'sui_api');
-    if (st === 'local') return res.status(400).json({ ok: false, error: 'local source does not support SUI inbounds' });
-    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports SUI manage APIs' });
+    if (st === 'local') return res.status(400).json({ ok: false, error: 'local source does not support panel inbounds' });
+    if (st === 'sbui') {
+      const j = await sbuiRequest(source, '/api/v1/inbounds');
+      const arr = Array.isArray(j?.obj) ? j.obj.map(normalizeSbuiInbound) : [];
+      return res.json({ ok: true, inbounds: arr });
+    }
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api/sbui source supports manage APIs' });
     const j = await suiRequest(source, '/api/inbounds');
     if (!j?.success || !Array.isArray(j?.obj)) return res.status(500).json({ ok: false, error: 'sui response invalid' });
     res.json({ ok: true, inbounds: j.obj });
@@ -1750,8 +1839,14 @@ app.post('/api/sui/:sourceId/reality-quick', async (req, res) => {
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
     const st = String(source.source_type || 'sui_api');
-    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports reality quick' });
     const remark = String(req.body?.remark || `quick-${Date.now()}`).trim();
+    if (st === 'sbui') {
+      const j = await sbuiRequest(source, '/api/v1/quick/reality', 'POST', { remark });
+      await syncSource(sourceId).catch(()=>{});
+      cacheInvalidate();
+      return res.json({ ok: true, obj: j || null });
+    }
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api/sbui source supports reality quick' });
     const j = await suiRequest(source, '/api/inbounds/add-reality-quick', 'POST', { remark });
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'create failed' });
     await syncSource(sourceId).catch(()=>{});
@@ -1771,7 +1866,13 @@ app.put('/api/sui/:sourceId/inbounds/:inboundId/rename', async (req, res) => {
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
     const st = String(source.source_type || 'sui_api');
-    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports rename inbounds' });
+    if (st === 'sbui') {
+      await sbuiRenameInbound(source, inboundId, remark);
+      await syncSource(sourceId).catch(()=>{});
+      cacheInvalidate();
+      return res.json({ ok: true });
+    }
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api/sbui source supports rename inbounds' });
     const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'PUT', { remark });
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'rename failed' });
     await syncSource(sourceId).catch(()=>{});
@@ -1789,7 +1890,13 @@ app.delete('/api/sui/:sourceId/inbounds/:inboundId', async (req, res) => {
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
     if (!source) return res.status(404).json({ ok: false, error: 'source not found' });
     const st = String(source.source_type || 'sui_api');
-    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api source supports delete inbounds' });
+    if (st === 'sbui') {
+      await sbuiRequest(source, `/api/v1/inbounds/${inboundId}`, 'DELETE');
+      await syncSource(sourceId).catch(()=>{});
+      cacheInvalidate();
+      return res.json({ ok: true });
+    }
+    if (st !== 'sui_api') return res.status(400).json({ ok: false, error: 'only sui_api/sbui source supports delete inbounds' });
     const j = await suiRequest(source, `/api/inbounds/${inboundId}`, 'DELETE');
     if (!j?.success) return res.status(500).json({ ok: false, error: j?.msg || 'delete failed' });
     await syncSource(sourceId).catch(()=>{});
