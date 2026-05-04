@@ -1075,6 +1075,24 @@ async function sbuiRenameInbound(source, inboundId, remark) {
 }
 
 
+
+async function findSbuiInboundIdByNodeHash(source, nodeHash) {
+  const j = await sbuiRequest(source, '/api/v1/inbounds');
+  const arr = Array.isArray(j?.obj) ? j.obj : [];
+  for (const ib of arr) {
+    if (!ib?.id) continue;
+    const lj = await sbuiRequest(source, `/api/v1/inbounds/${ib.id}/links`);
+    const links = Array.isArray(lj?.links) ? lj.links : [];
+    for (const one of links) {
+      if (typeof one !== 'string' || !one.trim()) continue;
+      const parsed = parseSubscriptionText(one.trim());
+      if (!parsed.length) continue;
+      if (parsed[0].node_hash === nodeHash) return Number(ib.id);
+    }
+  }
+  return null;
+}
+
 async function findSuiInboundIdByNodeHash(source, nodeHash, timeoutMs = 8000) {
   const j = await suiRequest(source, '/api/inbounds', 'GET', undefined, timeoutMs);
   if (!j?.success || !Array.isArray(j?.obj)) return null;
@@ -1998,10 +2016,12 @@ app.put('/api/nodes/:id/rename', async (req, res) => {
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(node.source_id);
     if (!source) return res.status(404).json({ ok:false, error:'source not found' });
     if (String(source.source_type || 'sui_api') === 'sbui') {
-      await sbuiRenameInbound(source, Number(node.id), node_name);
+      const inboundId = await findSbuiInboundIdByNodeHash(source, node_hash);
+      if (!inboundId) return res.status(404).json({ ok:false, error:'sbui inbound not found by hash' });
+      await sbuiRenameInbound(source, inboundId, node_name);
       await syncSource(source.id);
       cacheInvalidate();
-      return res.json({ ok:true, synced:'sbui+local', inbound_id: Number(node.id) });
+      return res.json({ ok:true, synced:'sbui+local', inbound_id: inboundId });
     }
 
     const inboundId = await findSuiInboundIdByNodeHash(source, node_hash);
