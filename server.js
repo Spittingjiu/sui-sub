@@ -1060,6 +1060,7 @@ function sbuiInboundProtocol(type='') {
 function normalizeSbuiInbound(ib) {
   return {
     id: Number(ib.id || 0),
+    display_id: String(Number(ib.id || 0)).padStart(3, '0'),
     remark: ib.tag || ib.remark || ib.node_name || '',
     protocol: sbuiInboundProtocol(ib.type || ib.protocol || ''),
     port: ib.port || '',
@@ -1797,6 +1798,7 @@ app.get('/api/view/modal-nodes', (req, res) => {
       ORDER BY n.id DESC
     `).all();
   }
+  rows = withNodeDisplayIds(rows);
   cacheSet(key, rows);
   res.json({ ok: true, nodes: rows, cached: false });
 });
