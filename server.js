@@ -792,6 +792,22 @@ function protocolFromRawLink(raw='') {
   return '';
 }
 
+
+function stableNodeHash(rawLink='') {
+  const raw = String(rawLink || '').trim();
+  if (!raw) return crypto.createHash('sha256').update('').digest('hex');
+  if (raw.startsWith('vmess://')) {
+    const payload = b64decodeLoose(raw.slice('vmess://'.length));
+    try {
+      const obj = JSON.parse(payload);
+      delete obj.ps;
+      return crypto.createHash('sha256').update('vmess://' + JSON.stringify(obj)).digest('hex');
+    } catch {}
+  }
+  const noFragment = raw.split('#')[0];
+  return crypto.createHash('sha256').update(noFragment).digest('hex');
+}
+
 function parseSubscriptionText(text) {
   const t = (text || '').trim();
   if (!t) return [];
@@ -810,7 +826,7 @@ function parseSubscriptionText(text) {
       try { name = JSON.parse(payload).ps || ''; } catch {}
     }
     if (!name) name = raw.slice(0, 48);
-    const node_hash = crypto.createHash('sha256').update(raw).digest('hex');
+    const node_hash = stableNodeHash(raw);
     return { raw_link: raw, node_name: name, node_hash, protocol: protocolFromRawLink(raw) };
   });
 }
@@ -1107,7 +1123,7 @@ function migrateLocalNodeDisplayNames() {
       const nm = String(r.node_name || '').trim();
       if (!nm) continue;
       const normalizedRaw = withLinkName(r.raw_link, nm);
-      const node_hash = crypto.createHash('sha256').update(normalizedRaw).digest('hex');
+      const node_hash = stableNodeHash(normalizedRaw);
       db.prepare('UPDATE nodes SET raw_link=?, node_hash=?, updated_at=? WHERE id=?')
         .run(normalizedRaw, node_hash, now(), r.id);
     }
@@ -1198,7 +1214,7 @@ async function syncSource(id) {
       const oldPbk = oldPbkByIdentity.get(p.key);
       if (!oldPbk) continue;
       n.raw_link = setUrlParam(n.raw_link, 'pbk', oldPbk);
-      n.node_hash = crypto.createHash('sha256').update(n.raw_link).digest('hex');
+      n.node_hash = stableNodeHash(n.raw_link);
     }
   }
 
@@ -1952,7 +1968,7 @@ app.post('/api/local-nodes', (req, res) => {
     const one = parsed[0];
     const node_name = customName || one.node_name || 'local-node';
     const normalizedRaw = withLinkName(one.raw_link, node_name);
-    const node_hash = crypto.createHash('sha256').update(normalizedRaw).digest('hex');
+    const node_hash = stableNodeHash(normalizedRaw);
 
     // 先按内容hash查重，再按名字+源兜底避免重复
     let exists = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_hash=?').get(source.id, node_hash);
@@ -1984,15 +2000,26 @@ app.put('/api/nodes/:id/rename', async (req, res) => {
     const node_name = String(req.body?.node_name || '').trim();
     if (!node_name) return res.status(400).json({ ok:false, error:'node_name 必填' });
 
+    const normalizedRaw = withLinkName(node.raw_link, node_name);
+    const node_hash = stableNodeHash(normalizedRaw);
+    db.prepare('UPDATE nodes SET node_name=?, raw_link=?, node_hash=?, updated_at=? WHERE id=?')
+      .run(node_name, normalizedRaw, node_hash, now(), id);
+
     if (String(node.source_type || 'sui_api') === 'local') {
-      db.prepare('UPDATE nodes SET node_name=?, updated_at=? WHERE id=?').run(node_name, now(), id);
       cacheInvalidate();
       return res.json({ ok:true, synced:'local-only-name' });
     }
 
     const source = db.prepare('SELECT * FROM sources WHERE id=?').get(node.source_id);
     if (!source) return res.status(404).json({ ok:false, error:'source not found' });
-    const inboundId = await findSuiInboundIdByNodeHash(source, node.node_hash);
+    if (String(source.source_type || 'sui_api') === 'sbui') {
+      await sbuiRenameInbound(source, Number(node.id), node_name);
+      await syncSource(source.id);
+      cacheInvalidate();
+      return res.json({ ok:true, synced:'sbui+local', inbound_id: Number(node.id) });
+    }
+
+    const inboundId = await findSuiInboundIdByNodeHash(source, node_hash);
     if (!inboundId) return res.status(404).json({ ok:false, error:'sui inbound not found by hash' });
 
     await suiRequest(source, `/api/inbounds/${inboundId}`, 'PUT', { remark: node_name });
