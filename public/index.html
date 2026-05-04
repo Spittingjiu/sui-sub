@@ -269,6 +269,9 @@ let cfFilterDraft={};
 // 结构：{ [subId|'new']: { [sourceId]: { transport:Set, hostType:Set, alpn:Set, tag:Set } } }
 let subFilterState={};
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function normalizeNodeView(n){const real=Number(n.real_id||n.id||0);const disp=String(n.display_id||String(n.display_no||real).padStart(3,'0'));return {...n,real_id:real,id:disp,display_id:disp};}
+function nodeRealId(n){return Number(n.real_id||n.id||0);} 
+
 const isLocalSource=(s)=>String(s?.source_type||'sui_api')==='local' || String(s?.panel_url||'')==='local://manual';
 const orderedSources=()=>[...sources].sort((a,b)=>{
   const al=isLocalSource(a), bl=isLocalSource(b);
@@ -588,7 +591,7 @@ async function toggleKernelInstall(){
   }
 }
 
-async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const pageY=window.scrollY||0;const box=q('#nodes');const st=box?box.scrollTop:0;const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=j.nodes||[];renderNodes();const box2=q('#nodes');if(box2) box2.scrollTop=st;if(activeTab==='nodes') window.scrollTo(0,pageY);}
+async function loadNodes(){const sid=(sourceViewId==='all'?0:Number(sourceViewId)||0);const pageY=window.scrollY||0;const box=q('#nodes');const st=box?box.scrollTop:0;const j=await api('/api/view/nodes'+(sid?`?sourceId=${sid}`:''));allNodes=(j.nodes||[]).map(normalizeNodeView);renderNodes();const box2=q('#nodes');if(box2) box2.scrollTop=st;if(activeTab==='nodes') window.scrollTo(0,pageY);}
 function getLocalSourceId(){
   const src=sources.find(s=>isLocalSource(s));
   return src?String(src.id):'';
@@ -643,7 +646,7 @@ function renderNodes(){
   const rows=(allNodes||[]).filter(n=>passCfFilter(n)), box=q('#nodes');
   if(!rows.length){box.innerHTML='<div class="muted">该源暂无节点（或被筛选条件过滤）</div>';return;}
   box.innerHTML=`<table><thead><tr><th>ID</th><th>来源</th><th>节点名</th><th><button onclick="checkConnectivity()" title="点击检测当前列表连通性" style="padding:4px 8px">连通性</button></th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map(n=>{
-    const id=Number(n.id||0);
+    const id=nodeRealId(n);
     const isLocal=String(n.source_type||'sui_api')==='local';
     const op=isLocal
       ? `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button> <button onclick="deleteLocalNode(${id})">删除</button>`
@@ -860,7 +863,7 @@ function modalNodes(){
 }
 function pruneSelectedByCfFilter(){
   // 订阅编辑时，避免“筛选外的 CF 节点”继续残留在已选列表里
-  const nodeById=new Map((modalAllNodes||[]).map(n=>[Number(n.id), n]));
+  const nodeById=new Map((modalAllNodes||[]).map(n=>[nodeRealId(n), n]));
   const sourceById=new Map((sources||[]).map(s=>[Number(s.id), s]));
   for(const id of [...selectedNodeIds]){
     const n=nodeById.get(Number(id));
@@ -873,9 +876,9 @@ function pruneSelectedByCfFilter(){
 function renderSubModal(){
   pruneSelectedByCfFilter();
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
-  const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
-  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${esc(n.node_name||n.display_id||String(n.id).padStart(3,'0'))} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
-  list.innerHTML=nodes.length?`<div class="modal-node-grid">${nodes.map(n=>`<label class="modal-node-item" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||'')}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.display_id||String(n.id).padStart(3,'0'))} · ${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join('')}</div>`:'<div class="muted">该源暂无节点</div>';
+  const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(nodeRealId(n)));
+  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${esc(n.node_name||n.display_id||String(n.display_id||n.id).padStart(3,'0'))} <a href="javascript:void(0)" data-rm="${nodeRealId(n)}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
+  list.innerHTML=nodes.length?`<div class="modal-node-grid">${nodes.map(n=>`<label class="modal-node-item" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||'')}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.display_id||String(n.display_id||n.id).padStart(3,'0'))} · ${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${nodeRealId(n)}" ${selectedNodeIds.has(nodeRealId(n))?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join('')}</div>`:'<div class="muted">该源暂无节点</div>';
   list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid);if(e.target.checked)selectedNodeIds.add(id);else selectedNodeIds.delete(id);renderSubModal();});
   picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
 }
@@ -902,7 +905,7 @@ async function openSubModal(sub=null){
 
   const sid=q('#modalSourceFilter')?.value||'all';
   const j=await api('/api/view/modal-nodes'+(sid!=='all'?`?sourceId=${sid}`:''));
-  modalAllNodes=j.nodes||[];
+  modalAllNodes=(j.nodes||[]).map(normalizeNodeView);
   renderSubModal();
   q('#subModal').classList.remove('hide');
 }
