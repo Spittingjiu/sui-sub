@@ -648,7 +648,7 @@ function renderNodes(){
     const op=isLocal
       ? `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button> <button onclick="deleteLocalNode(${id})">删除</button>`
       : `<button onclick="toggleNode(${id})">切换</button> <button onclick="renameNode(${id})">改名</button>`;
-    return `<tr><td>${id}</td><td>${esc(n.source_name||n.source_id)}</td><td>${esc(n.node_name||'')}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
+    return `<tr><td><span class="pill" title="真实ID: ${id}">${esc(n.display_id||('#'+id))}</span></td><td>${esc(n.source_name||n.source_id)}</td><td>${esc(n.node_name||'')}</td><td>${connectivityCell(n)}</td><td>${n.enabled?'<span class="ok">启用</span>':'<span class="err">禁用</span>'}</td><td>${op}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
 let checkingConnectivity=false;
@@ -874,8 +874,8 @@ function renderSubModal(){
   pruneSelectedByCfFilter();
   const picked=q('#modalPicked'), list=q('#modalNodeList'), nodes=modalNodes();
   const chosen=modalAllNodes.filter(n=>selectedNodeIds.has(n.id));
-  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${esc(n.node_name||('#'+n.id))} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
-  list.innerHTML=nodes.length?`<div class="modal-node-grid">${nodes.map(n=>`<label class="modal-node-item" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||('#'+n.id))}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join('')}</div>`:'<div class="muted">该源暂无节点</div>';
+  picked.innerHTML=chosen.length?chosen.map(n=>`<span class="chip">${esc(n.node_name||n.display_id||('#'+n.id))} <a href="javascript:void(0)" data-rm="${n.id}" style="color:#c9d2ff;text-decoration:none">×</a></span>`).join(''):'<span class="muted">未选择节点</span>';
+  list.innerHTML=nodes.length?`<div class="modal-node-grid">${nodes.map(n=>`<label class="modal-node-item" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px;border:1px solid #2b3963;border-radius:10px;background:#0d1530;cursor:pointer"><div style="min-width:0"><div style="color:#eef2ff;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.node_name||'')}</div><div style="color:rgba(238,242,255,.72);font-size:12px;margin-top:2px;white-space:normal;word-break:normal;overflow-wrap:anywhere">${esc(n.display_id||('#'+n.id))} · ${esc(n.source_name||n.source_id)}</div></div><input type="checkbox" data-nid="${n.id}" ${selectedNodeIds.has(n.id)?'checked':''} style="width:18px;height:18px;justify-self:end"></label>`).join('')}</div>`:'<div class="muted">该源暂无节点</div>';
   list.querySelectorAll('input[data-nid]').forEach(el=>el.onchange=(e)=>{const id=Number(e.target.dataset.nid);if(e.target.checked)selectedNodeIds.add(id);else selectedNodeIds.delete(id);renderSubModal();});
   picked.querySelectorAll('[data-rm]').forEach(el=>el.onclick=()=>{selectedNodeIds.delete(Number(el.dataset.rm));renderSubModal();});
 }

@@ -164,6 +164,50 @@ db.prepare(`UPDATE sources SET enabled=1 WHERE enabled IS NULL`).run();
 sourceCols = db.prepare(`PRAGMA table_info(sources)`).all().map(x => x.name);
 const hasTokenUrlCol = sourceCols.includes('token_url');
 const hasSourceTypeCol = sourceCols.includes('source_type');
+
+let nodeCols = db.prepare(`PRAGMA table_info(nodes)`).all().map(x => x.name);
+if (!nodeCols.includes('display_no')) db.exec(`ALTER TABLE nodes ADD COLUMN display_no INTEGER`);
+nodeCols = db.prepare(`PRAGMA table_info(nodes)`).all().map(x => x.name);
+
+function ensureNodeDisplayNumbers() {
+  if (!nodeCols.includes('display_no')) return;
+  const sources = db.prepare('SELECT DISTINCT source_id FROM nodes WHERE display_no IS NULL ORDER BY source_id').all();
+  const update = db.prepare('UPDATE nodes SET display_no=? WHERE id=?');
+  const tx = db.transaction(() => {
+    for (const src of sources) {
+      const sourceId = Number(src.source_id || 0);
+      let next = Number(db.prepare('SELECT COALESCE(MAX(display_no),0)+1 AS n FROM nodes WHERE source_id=?').get(sourceId).n || 1);
+      const rows = db.prepare('SELECT id FROM nodes WHERE source_id=? AND display_no IS NULL ORDER BY created_at ASC, id ASC').all(sourceId);
+      for (const r of rows) update.run(next++, r.id);
+    }
+  });
+  tx();
+}
+
+function nextNodeDisplayNo(sourceId) {
+  const row = db.prepare('SELECT COALESCE(MAX(display_no),0)+1 AS n FROM nodes WHERE source_id=?').get(sourceId);
+  return Number(row?.n || 1);
+}
+
+function sourceDisplayPrefix(row={}) {
+  const raw = String(row.source_name || row.source_id || 'SRC').trim();
+  const upper = raw.toUpperCase();
+  if (upper.includes('SBUI') || upper.includes('S-MATRIX')) return 'SBUI';
+  if (raw.includes('本地')) return 'LOCAL';
+  const ascii = upper.replace(/[^A-Z0-9]+/g, '');
+  if (ascii) return ascii.slice(0, 6);
+  return raw.replace(/\s+/g, '').slice(0, 4) || 'SRC';
+}
+
+function withNodeDisplayIds(rows) {
+  return (rows || []).map(r => {
+    const displayNo = Number(r.display_no || 0) || Number(r.id || 0);
+    return { ...r, display_no: displayNo, display_id: `${sourceDisplayPrefix(r)}-${String(displayNo).padStart(3, '0')}`, real_id: Number(r.id || 0) };
+  });
+}
+
+ensureNodeDisplayNumbers();
+
 const subCols = db.prepare(`PRAGMA table_info(subscriptions)`).all().map(x => x.name);
 if (!subCols.includes('node_ids_json')) db.exec(`ALTER TABLE subscriptions ADD COLUMN node_ids_json TEXT NOT NULL DEFAULT '[]'`);
 if (!subCols.includes('auto_prune_unreachable')) db.exec(`ALTER TABLE subscriptions ADD COLUMN auto_prune_unreachable INTEGER NOT NULL DEFAULT 0`);
@@ -990,8 +1034,8 @@ function migrateLocalNodeDisplayNames() {
 function upsertNodes(sourceId, nodes) {
   let inserted = 0, updated = 0, removed = 0;
   const upsert = db.prepare(`
-    INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at)
-    VALUES(@source_id,@node_hash,@node_name,@raw_link,1,@created_at,@updated_at)
+    INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at,display_no)
+    VALUES(@source_id,@node_hash,@node_name,@raw_link,1,@created_at,@updated_at,@display_no)
     ON CONFLICT(source_id,node_hash) DO UPDATE SET
       node_name=excluded.node_name,
       raw_link=excluded.raw_link,
@@ -1001,7 +1045,7 @@ function upsertNodes(sourceId, nodes) {
     const latestHashes = new Set(arr.map(x => x.node_hash));
     for (const n of arr) {
       const before = db.prepare('SELECT id FROM nodes WHERE source_id=? AND node_hash=?').get(sourceId, n.node_hash);
-      upsert.run({ source_id: sourceId, ...n, created_at: now(), updated_at: now() });
+      upsert.run({ source_id: sourceId, ...n, display_no: nextNodeDisplayNo(sourceId), created_at: now(), updated_at: now() });
       if (before) updated++; else inserted++;
     }
 
@@ -1493,6 +1537,7 @@ app.get('/api/view/nodes', (req, res) => {
       ORDER BY n.id DESC
     `).all();
   }
+  rows = withNodeDisplayIds(rows);
   cacheSet(key, rows);
   res.json({ ok: true, nodes: rows, cached: false });
 });
@@ -1775,7 +1820,7 @@ app.get('/api/nodes', (req, res) => {
       ORDER BY n.id DESC
     `).all();
   }
-  rows = rows.map(r => ({ ...r, protocol: protocolFromRawLink(r.raw_link || '') || r.protocol || '' }));
+  rows = withNodeDisplayIds(rows).map(r => ({ ...r, protocol: protocolFromRawLink(r.raw_link || '') || r.protocol || '' }));
   res.json({ ok: true, nodes: rows });
 });
 
@@ -1815,8 +1860,8 @@ app.post('/api/local-nodes', (req, res) => {
       return res.json({ ok:true, id: exists.id, updated: true });
     }
 
-    const r = db.prepare('INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at) VALUES(?,?,?,?,1,?,?)')
-      .run(source.id, node_hash, node_name, normalizedRaw, now(), now());
+    const r = db.prepare('INSERT INTO nodes(source_id,node_hash,node_name,raw_link,enabled,created_at,updated_at,display_no) VALUES(?,?,?,?,1,?,?,?)')
+      .run(source.id, node_hash, node_name, normalizedRaw, now(), now(), nextNodeDisplayNo(source.id));
     cacheInvalidate();
     return res.json({ ok:true, id: Number(r.lastInsertRowid), created: true });
   } catch (e) {
