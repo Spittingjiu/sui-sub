@@ -121,6 +121,17 @@
           </div>
         </details>
 
+        <details style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px">
+          <summary style="cursor:pointer;user-select:none;font-weight:700">新建 SBUI / S-Matrix 源</summary>
+          <div class="grid" style="margin-top:10px">
+            <input id="sbuiName" placeholder="名称（例如：SBUI-本地）"/>
+            <input id="sbuiPanel" placeholder="SBUI 地址（https://sbui.example.com）"/>
+            <input id="sbuiToken" placeholder="API Token（或填 用户名:密码，可选）"/>
+            <button onclick="addSource('sbui')">保存</button>
+          </div>
+          <div class="muted" style="margin-top:6px;font-size:12px">自动探测 /api/v1/discover 并拉取订阅节点</div>
+        </details>
+
         <div id="msg" class="muted" style="margin-top:8px"></div>
       </div>
       <div class="card">
@@ -297,14 +308,28 @@ async function logout(){await api('/api/auth/logout',{method:'POST',body:'{}'});
 
 async function addSource(kind='sui'){
   try{
-    const k=String(kind||'sui').toLowerCase()==='cf'?'cf':'sui';
-    const name=q(k==='cf'?'#cfName':'#suiName').value.trim();
-    const panel_url=q(k==='cf'?'#cfPanel':'#suiPanel').value.trim();
-    const panel_token=q(k==='cf'?'#cfToken':'#suiToken').value.trim();
-    await api('/api/sources',{method:'POST',body:JSON.stringify({name,panel_url,panel_token,source_type:(k==='cf'?'cf_sub':'sui_api')})});
-    q(k==='cf'?'#cfName':'#suiName').value='';
-    q(k==='cf'?'#cfPanel':'#suiPanel').value='';
-    q(k==='cf'?'#cfToken':'#suiToken').value='';
+    const k=String(kind||'sui').toLowerCase();
+    let name,panel_url,panel_token,source_type;
+    if(k==='sbui'){
+      name=q('#sbuiName').value.trim();
+      panel_url=q('#sbuiPanel').value.trim();
+      panel_token=q('#sbuiToken').value.trim();
+      source_type='sbui';
+    } else if(k==='cf'){
+      name=q('#cfName').value.trim();
+      panel_url=q('#cfPanel').value.trim();
+      panel_token=q('#cfToken').value.trim();
+      source_type='cf_sub';
+    } else {
+      name=q('#suiName').value.trim();
+      panel_url=q('#suiPanel').value.trim();
+      panel_token=q('#suiToken').value.trim();
+      source_type='sui_api';
+    }
+    await api('/api/sources',{method:'POST',body:JSON.stringify({name,panel_url,panel_token,source_type})});
+    if(k==='sbui'){q('#sbuiName').value='';q('#sbuiPanel').value='';q('#sbuiToken').value='';}
+    else if(k==='cf'){q('#cfName').value='';q('#cfPanel').value='';q('#cfToken').value='';}
+    else{q('#suiName').value='';q('#suiPanel').value='';q('#suiToken').value='';}
     toast('已保存，自动同步中…','ok');
     await refreshAll();
   }catch(e){toast(e.message,'err')}
@@ -378,13 +403,15 @@ function renderSourceCard(s){
 function renderSourceGroup(title, list, open=true){
   return `<details ${open?'open':''} style="border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg2);margin-top:8px"><summary style="cursor:pointer;user-select:none;font-weight:700">${title}（${list.length}）</summary><div style="margin-top:8px">${list.length?list.map(renderSourceCard).join(''):'<div class="muted">暂无</div>'}</div></details>`;
 }
+function isSbuiSource(s){return String(s?.source_type||'').toLowerCase()==='sbui';}
 function renderSourcesUI(){
   const box=q('#sources');
   if(!sources.length){box.innerHTML='<div class="muted">暂无</div>';loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter(); return;}
   const ordered=orderedSources();
-  const cfSources=ordered.filter(s=>isCfSource(s));
-  const suiSources=ordered.filter(s=>!isCfSource(s));
-  box.innerHTML=`${renderSourceGroup('SUI源',suiSources,false)}${renderSourceGroup('CF源',cfSources,false)}`;
+  const sbuiSources=ordered.filter(s=>isSbuiSource(s));
+  const cfSources=ordered.filter(s=>isCfSource(s)&&!isSbuiSource(s));
+  const suiSources=ordered.filter(s=>!isCfSource(s)&&!isSbuiSource(s));
+  box.innerHTML=`${renderSourceGroup('SUI源',suiSources,false)}${renderSourceGroup('SBUI源',sbuiSources,false)}${renderSourceGroup('CF源',cfSources,false)}`;
   loadSuiSourceOptions(); renderNodeSourceSelect(); renderModalSourceFilter();
 }
 function focusSource(id){sourceViewId=String(id);switchTab('nodes');renderNodeSourceSelect();renderNodes();}

@@ -730,15 +730,33 @@ const b64decodeLoose = (str) => {
   try { return Buffer.from(clean + pad, 'base64').toString('utf8'); } catch { return ''; }
 };
 
+const SUB_LINK_RE = /(vmess|vless|trojan|ss|hy2|hysteria2|hysteria|tuic|naive\+https|shadowtls|anytls):\/\//i;
+const SUB_LINE_RE = /^(vmess|vless|trojan|ss|hy2|hysteria2|hysteria|tuic|naive\+https|shadowtls|anytls):\/\//i;
+
+function protocolFromRawLink(raw='') {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s.startsWith('hysteria2://') || s.startsWith('hy2://')) return 'hysteria2';
+  if (s.startsWith('hysteria://')) return 'hysteria';
+  if (s.startsWith('naive+https://')) return 'naive';
+  if (s.startsWith('shadowtls://')) return 'shadowtls';
+  if (s.startsWith('anytls://')) return 'anytls';
+  if (s.startsWith('tuic://')) return 'tuic';
+  if (s.startsWith('vmess://')) return 'vmess';
+  if (s.startsWith('vless://')) return 'vless';
+  if (s.startsWith('trojan://')) return 'trojan';
+  if (s.startsWith('ss://')) return 'shadowsocks';
+  return '';
+}
+
 function parseSubscriptionText(text) {
   const t = (text || '').trim();
   if (!t) return [];
   let body = t;
-  if (!/(vmess|vless|trojan|ss|hy2):\/\//i.test(t)) {
+  if (!SUB_LINK_RE.test(t)) {
     const decoded = b64decodeLoose(t);
-    if (/(vmess|vless|trojan|ss|hy2):\/\//i.test(decoded)) body = decoded;
+    if (SUB_LINK_RE.test(decoded)) body = decoded;
   }
-  const lines = body.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && /^(vmess|vless|trojan|ss|hy2):\/\//i.test(x));
+  const lines = body.split(/\r?\n/).map((x) => x.trim()).filter((x) => x && SUB_LINE_RE.test(x));
   return lines.map((raw) => {
     let name = '';
     const hashIdx = raw.indexOf('#');
@@ -749,7 +767,7 @@ function parseSubscriptionText(text) {
     }
     if (!name) name = raw.slice(0, 48);
     const node_hash = crypto.createHash('sha256').update(raw).digest('hex');
-    return { raw_link: raw, node_name: name, node_hash };
+    return { raw_link: raw, node_name: name, node_hash, protocol: protocolFromRawLink(raw) };
   });
 }
 
@@ -1460,7 +1478,7 @@ app.get('/api/view/nodes', (req, res) => {
       FROM nodes n
       LEFT JOIN sources s ON s.id=n.source_id
       LEFT JOIN node_connectivity c ON c.node_id=n.id
-      WHERE n.source_id=? AND COALESCE(s.enabled,1)=1
+      WHERE n.source_id=? AND COALESCE(s.enabled,1)=1 AND (s.last_sync_status='ok' OR s.last_sync_status IS NULL OR s.source_type='local')
       ORDER BY n.id DESC
     `).all(sourceId);
   } else {
@@ -1471,7 +1489,7 @@ app.get('/api/view/nodes', (req, res) => {
       FROM nodes n
       LEFT JOIN sources s ON s.id=n.source_id
       LEFT JOIN node_connectivity c ON c.node_id=n.id
-      WHERE COALESCE(s.enabled,1)=1
+      WHERE COALESCE(s.enabled,1)=1 AND (s.last_sync_status='ok' OR s.last_sync_status IS NULL OR s.source_type='local')
       ORDER BY n.id DESC
     `).all();
   }
@@ -1757,6 +1775,7 @@ app.get('/api/nodes', (req, res) => {
       ORDER BY n.id DESC
     `).all();
   }
+  rows = rows.map(r => ({ ...r, protocol: protocolFromRawLink(r.raw_link || '') || r.protocol || '' }));
   res.json({ ok: true, nodes: rows });
 });
 
@@ -2035,9 +2054,10 @@ function parseLinkToClashProxy(raw, uniqueName) {
       };
     }
     if (network === 'xhttp') {
-      p['xhttp-opts'] = {
-        path: u.searchParams.get('path') || '/'
-      };
+      const xhttpHost = (security === 'reality' && sni) ? sni : (u.searchParams.get('host') || '');
+      const xopts = { path: u.searchParams.get('path') || '/' };
+      if (xhttpHost) xopts.host = xhttpHost;
+      p['xhttp-opts'] = xopts;
     }
     if (security === 'reality') {
       const pbk = u.searchParams.get('pbk') || '';
@@ -2180,6 +2200,104 @@ function parseLinkToClashProxy(raw, uniqueName) {
     if (up) p.up = /^\d+(\.\d+)?$/i.test(up) ? `${up} Mbps` : up;
     if (down) p.down = /^\d+(\.\d+)?$/i.test(down) ? `${down} Mbps` : down;
 
+    if (!p.server || !p.port || !p.password) return null;
+    return p;
+  }
+
+
+  if (link.startsWith('hysteria://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `hysteria-${u.hostname}`);
+    const p = {
+      name,
+      type: 'hysteria',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      ports: Number(u.port || 0),
+      auth_str: decodeURIComponent(u.username || ''),
+      udp: true,
+      'skip-cert-verify': true,
+    };
+    const obfs = u.searchParams.get('obfs') || '';
+    if (obfs) p.obfs = obfs;
+    if (!p.server || !p.port || !p.auth_str) return null;
+    return p;
+  }
+
+  if (link.startsWith('tuic://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `tuic-${u.hostname}`);
+    const p = {
+      name,
+      type: 'tuic',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      uuid: decodeURIComponent(u.username || ''),
+      password: decodeURIComponent(u.password || ''),
+      udp: true,
+      'skip-cert-verify': true,
+    };
+    const cc = u.searchParams.get('congestion_control') || u.searchParams.get('congestion-controller') || '';
+    if (cc) p['congestion-controller'] = cc;
+    const sni = u.searchParams.get('sni') || '';
+    if (sni) p.sni = sni;
+    if (!p.server || !p.port || !p.uuid || !p.password) return null;
+    return p;
+  }
+
+  if (link.startsWith('naive+https://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `naive-${u.hostname}`);
+    const p = {
+      name,
+      type: 'http',
+      server: u.hostname,
+      port: Number(u.port || 443),
+      username: decodeURIComponent(u.username || ''),
+      password: decodeURIComponent(u.password || ''),
+      tls: true,
+      udp: true,
+      'skip-cert-verify': true,
+    };
+    if (!p.server || !p.port || !p.username || !p.password) return null;
+    return p;
+  }
+
+  if (link.startsWith('shadowtls://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `shadowtls-${u.hostname}`);
+    const p = {
+      name,
+      type: 'ss',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      cipher: '2022-blake3-aes-128-gcm',
+      password: decodeURIComponent(u.username || ''),
+      udp: true,
+      plugin: 'shadow-tls',
+      'plugin-opts': { host: u.searchParams.get('sni') || 'www.microsoft.com', password: decodeURIComponent(u.username || ''), version: Number(u.searchParams.get('version') || 3) }
+    };
+    if (!p.server || !p.port || !p.password) return null;
+    return p;
+  }
+
+  if (link.startsWith('anytls://')) {
+    let u;
+    try { u = new URL(link); } catch { return null; }
+    const name = uniqueName(decodeHashName(link) || `anytls-${u.hostname}`);
+    const p = {
+      name,
+      type: 'anytls',
+      server: u.hostname,
+      port: Number(u.port || 0),
+      password: decodeURIComponent(u.username || ''),
+      udp: true,
+      'skip-cert-verify': true,
+    };
     if (!p.server || !p.port || !p.password) return null;
     return p;
   }
@@ -2587,7 +2705,7 @@ function getSubNodeLinksBySub(sub) {
     rows = db.prepare(`SELECT id,raw_link FROM nodes WHERE enabled=1 AND id IN (${p}) ORDER BY id DESC`).all(...nodeIds);
   } else if (sourceIds.length) {
     const p = sourceIds.map(()=>'?').join(',');
-    rows = db.prepare(`SELECT id,raw_link FROM nodes WHERE enabled=1 AND source_id IN (${p}) ORDER BY id DESC`).all(...sourceIds);
+    rows = db.prepare(`SELECT n.id,n.raw_link FROM nodes n JOIN sources s ON s.id=n.source_id WHERE n.enabled=1 AND n.source_id IN (${p}) AND (s.last_sync_status='ok' OR s.last_sync_status IS NULL) ORDER BY n.id DESC`).all(...sourceIds);
   }
 
   if (autoPrune) {
